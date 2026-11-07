@@ -1182,10 +1182,13 @@ def api_key_dialog(root, first_run=False, on_saved=None):
 
     try:
         win.wait_visibility()
+        entry.focus_set()
     except Exception:
         pass
-    entry.focus_set()
-    win.wait_window()
+    try:
+        win.wait_window()
+    except Exception:
+        pass
     return bool(result["ok"] and jcfg.get_api_key())
 
 
