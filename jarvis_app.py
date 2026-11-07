@@ -1041,8 +1041,12 @@ def _open_ai_studio():
         pass
 
 
-def api_key_dialog(root, first_run=False, on_saved=None):
-    """Ask for a Gemini API key and remember it in the per-user config."""
+def api_key_dialog(root, first_run=False, on_saved=None, initial_key=""):
+    """Ask for a Gemini API key and remember it in the per-user config.
+
+    The key saved by the app is what Jarvis uses. Environment variables are
+    only a fallback, so an old Windows key can never override a key saved here.
+    """
     if jcfg is None:
         messagebox.showerror(
             "AUTHENTICATION ERROR",
@@ -1051,7 +1055,8 @@ def api_key_dialog(root, first_run=False, on_saved=None):
         )
         return False
 
-    existing = jcfg.get_api_key()
+    existing = jcfg.get_saved_api_key()
+    prefill = (existing or initial_key or jcfg.get_api_key() or "").strip()
     result = {"ok": bool(existing)}
 
     win = tk.Toplevel(root)
@@ -1073,10 +1078,9 @@ def api_key_dialog(root, first_run=False, on_saved=None):
              bg=BG, fg=TEXT_MAIN, font=("Segoe UI", 10)).pack(anchor="w", pady=(4, 10))
 
     steps = (
-        "1.  Open Google AI Studio and sign in with your Google account.\n"
-        "2.  Click \"Create API key\".\n"
-        "3.  Copy the key (it starts with AIza...).\n"
-        "4.  Paste it below and press SAVE KEY."
+        "1.  Open Google AI Studio and sign in.\n"
+        "2.  Click \"Create API key\" and copy the key.\n"
+        "3.  Paste it below and press SAVE KEY."
     )
     tk.Label(wrap, text=steps, bg=PANEL, fg=TEXT_MAIN, justify="left",
              font=("Consolas", 9), padx=14, pady=12,
@@ -1096,12 +1100,15 @@ def api_key_dialog(root, first_run=False, on_saved=None):
                      font=("Consolas", 11), highlightthickness=1,
                      highlightbackground=PANEL_BORDER)
     entry.pack(side="left", fill="x", expand=True, ipady=7)
-    if existing:
-        entry.insert(0, existing)
+    if prefill:
+        entry.insert(0, prefill)
 
     status = tk.StringVar()
     if existing:
         status.set("Saved key: " + jcfg.mask_key(existing))
+    elif prefill:
+        status.set("Found a Windows key: " + jcfg.mask_key(prefill)
+                   + " - press SAVE KEY to keep it in the app.")
     else:
         status.set("No key saved yet.")
     tk.Label(wrap, textvariable=status, bg=BG, fg=TEXT_DIM,
@@ -1193,11 +1200,18 @@ def api_key_dialog(root, first_run=False, on_saved=None):
 
 
 def ensure_api_key(root) -> bool:
-    key = jcfg.get_api_key() if jcfg is not None else ""
-    if key:
-        os.environ["GEMINI_API_KEY"] = key
+    if jcfg is None:
+        return False
+
+    saved = jcfg.get_saved_api_key()
+    if saved:
+        os.environ["GEMINI_API_KEY"] = saved
         return True
-    return api_key_dialog(root, first_run=True)
+
+    # No key saved by the app yet: ask once, inside the app. If Windows has an
+    # old GEMINI_API_KEY, it is used to prefill the box so the user only has to
+    # press SAVE KEY.
+    return api_key_dialog(root, first_run=True, initial_key=jcfg.get_api_key())
 
 
 def main():

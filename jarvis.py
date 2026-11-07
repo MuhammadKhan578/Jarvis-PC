@@ -488,44 +488,55 @@ TTS_CACHE_MAX = 400
 
 pyautogui.PAUSE = 0.01
 
-if not (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")):
-    _key = ""
-    _studio = "https://aistudio.google.com/app/apikey"
+# The key saved by the app is used first; environment variables are only a
+# fallback. This keeps the desktop app and the HUD on the same key.
+_key = ""
+_studio = "https://aistudio.google.com/app/apikey"
+_jcfg = None
+_saved = ""
+try:
+    import jarvis_config as _jcfg
+    _studio = _jcfg.AI_STUDIO_URL
+    _saved = _jcfg.get_saved_api_key()
+except Exception:
     _jcfg = None
+
+if _saved:
+    _key = _saved
+else:
+    _key = (os.environ.get("GEMINI_API_KEY")
+            or os.environ.get("GOOGLE_API_KEY")
+            or "").strip()
+
+_prompted = False
+if not _key:
+    print("")
+    print("+------------------------------------------------------------------+")
+    print("|  J.A.R.V.I.S. needs a free Google Gemini API key.               |")
+    print("|  1. Open Google AI Studio and sign in.                          |")
+    print("|  2. Click 'Create API key'.                                     |")
+    print("|  3. Paste the key below (it starts with AIza...).               |")
+    print("+------------------------------------------------------------------+")
+    print("  " + _studio)
+    print("")
     try:
-        import jarvis_config as _jcfg
-        _studio = _jcfg.AI_STUDIO_URL
-        _key = _jcfg.get_api_key()
-    except Exception:
-        _jcfg = None
+        _key = input("  GEMINI_API_KEY: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        _key = ""
+    _prompted = True
 
-    if not _key:
-        print("")
-        print("+------------------------------------------------------------------+")
-        print("|  J.A.R.V.I.S. needs a free Google Gemini API key.               |")
-        print("|  1. Open Google AI Studio and sign in.                          |")
-        print("|  2. Click 'Create API key'.                                     |")
-        print("|  3. Paste the key below (it starts with AIza...).               |")
-        print("+------------------------------------------------------------------+")
-        print("  " + _studio)
-        print("")
+if _key:
+    os.environ["GEMINI_API_KEY"] = _key
+    if _jcfg is not None and _prompted:
         try:
-            _key = input("  GEMINI_API_KEY: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            _key = ""
-
-    if _key:
-        os.environ["GEMINI_API_KEY"] = _key
-        if _jcfg is not None:
-            try:
-                _jcfg.save_api_key(_key)
-                print("  Key saved to: " + _jcfg.describe_location())
-            except Exception as _e:
-                print("  (Key could not be saved: " + str(_e) + ")")
-    else:
-        print("[Error]: GEMINI_API_KEY is required.")
-        print("Create one at: " + _studio)
-        sys.exit(1)
+            _jcfg.save_api_key(_key)
+            print("  Key saved to: " + _jcfg.describe_location())
+        except Exception as _e:
+            print("  (Key could not be saved: " + str(_e) + ")")
+else:
+    print("[Error]: GEMINI_API_KEY is required.")
+    print("Create one at: " + _studio)
+    sys.exit(1)
 
 # three clients: a quick one (a slow model is dropped after 12 s and the next model answers),
 # a normal one (screen reading, research ...) and a patient one for hard questions

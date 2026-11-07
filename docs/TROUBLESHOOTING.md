@@ -52,6 +52,8 @@ The choice is saved in `jarvis_settings.json`.
   it.
 - Check `%APPDATA%\Jarvis\config.json`. If it exists and contains
   `gemini_api_key`, Jarvis skips the first-run dialog.
+- If no key is saved there, the app asks on every start until you press
+  **SAVE KEY** — even if an old Windows `GEMINI_API_KEY` variable still exists.
 - To force the dialog, remove the key with the **REMOVE KEY** button or delete
   the config file.
 

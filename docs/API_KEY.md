@@ -18,6 +18,9 @@ brain. The key belongs to **you** — this project does not include one.
 The HUD shows a **GEMINI API KEY** dialog. Paste the key and press
 **SAVE KEY**. That is all — Jarvis will remember it.
 
+If an old `GEMINI_API_KEY` already exists in Windows, the box is prefilled with
+it. Just press **SAVE KEY** once. The app key is what Jarvis uses from then on.
+
 ### Later
 
 Click the **`[ API KEY ]`** button in the top bar of the HUD. The same dialog
@@ -48,7 +51,8 @@ python jarvis_app.py
 
 ## Environment variables
 
-For temporary runs or CI, environment variables take priority over the file:
+The key saved by the app always comes first. Environment variables are only a
+fallback when no app key is saved yet — useful for temporary runs or CI:
 
 ```powershell
 $env:GEMINI_API_KEY = "AIza..."
@@ -56,6 +60,9 @@ python jarvis_app.py
 ```
 
 `GOOGLE_API_KEY` is also accepted.
+
+To make Jarvis use a different key, save it in the **`[ API KEY ]`** dialog.
+You do not need to edit environment variables.
 
 ## Running `jarvis.py` directly
 

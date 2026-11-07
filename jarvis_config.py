@@ -110,14 +110,26 @@ def is_valid_key(key: str) -> bool:
     return len(value) >= KEY_MIN_LENGTH and value.startswith("AIza")
 
 
+def get_saved_api_key() -> str:
+    """Return only the key saved in the app config (never the environment)."""
+    value = load_config().get("gemini_api_key", "")
+    return str(value or "").strip()
+
+
 def get_api_key() -> str:
-    """Environment first, then the saved per-user key."""
+    """The app-saved key first, then environment variables as a fallback.
+
+    Keeping the app key first means a key saved in the HUD always wins, even
+    if an old GEMINI_API_KEY variable is still present in Windows.
+    """
+    saved = get_saved_api_key()
+    if saved:
+        return saved
     for name in KEY_ENV_VARS:
         value = (os.environ.get(name) or "").strip()
         if value:
             return value
-    value = load_config().get("gemini_api_key", "")
-    return str(value or "").strip()
+    return ""
 
 
 def save_api_key(key: str) -> str:

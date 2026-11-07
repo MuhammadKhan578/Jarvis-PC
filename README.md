@@ -49,6 +49,10 @@ no API keys, no logs, and no private data**.
    - Paste it in the dialog and click **SAVE KEY**.
 5. Jarvis remembers the key and will **not ask again**.
 
+> If Windows already has an old `GEMINI_API_KEY` variable, the dialog still
+> opens once and the box is prefilled. Press **SAVE KEY** once; the key saved
+> in the app takes priority from then on.
+
 > You can change or remove the key at any time with the **`[ API KEY ]`**
 > button in the top bar of the HUD.
 
