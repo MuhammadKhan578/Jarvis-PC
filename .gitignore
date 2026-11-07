@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Jarvis runtime data (personal - never commit)
+jarvis_data/
+Jarvis_Documents/
+Jarvis_Reports/
+old_data_backup/
+jarvis_memory.json
+jarvis_settings.json
+jarvis_companion.json
+jarvis_key.txt
+jarvis_app.log
+*.log
+
+# Backups and local experiments
+jarvis_backup_before_ultimate.py
+
+# Secrets / local config
+.env
+config.local.json
+*.secret
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
