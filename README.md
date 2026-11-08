@@ -50,7 +50,8 @@ no API keys, no logs, and no private data**.
    - Click **OPEN GOOGLE AI STUDIO** (or visit
      <https://aistudio.google.com/app/apikey>).
    - Sign in and click **Create API key**.
-   - Copy the key (it starts with `AIza...`).
+   - Copy the key. New Google AI Studio keys start with **`AQ.`**; older
+     keys start with `AIza...`.
    - Paste it in the dialog and click **SAVE KEY**.
 5. Jarvis remembers the key and will **not ask again**.
 
@@ -58,8 +59,10 @@ no API keys, no logs, and no private data**.
 > opens once and the box is prefilled. Press **SAVE KEY** once; the key saved
 > in the app takes priority from then on.
 
-> You can change or remove the key at any time with the **`[ API KEY ]`**
-> button in the top bar of the HUD.
+> You can change the key at any time with the **`[ API KEY ]`** button in the
+> top bar of the HUD. Use **RESET KEY** there to completely delete the old key
+> (app config + Windows variables), then paste a fresh one and press
+> **SAVE KEY**. Both `AQ.` and `AIza...` keys are supported.
 
 ### Where is the key stored?
 
@@ -174,6 +177,9 @@ See [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md). Common fixes:
   Settings > Time & language > Speech.
 - **Key not remembered** â€” check that `%APPDATA%\Jarvis\config.json` exists and
   is writable.
+- **"Invalid key" or an expired/blocked key** â€” open **`[ API KEY ]`**, press
+  **RESET KEY**, then paste a fresh key from Google AI Studio (new keys start
+  with `AQ.`; older ones with `AIza...`).
 - **HUD does not start** â€” run `python jarvis_app.py` in a terminal to see the
   full error.
 

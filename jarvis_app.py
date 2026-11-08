@@ -1057,7 +1057,7 @@ def api_key_dialog(root, first_run=False, on_saved=None, initial_key=""):
 
     existing = jcfg.get_saved_api_key()
     prefill = (existing or initial_key or jcfg.get_api_key() or "").strip()
-    result = {"ok": bool(existing)}
+    result = {"ok": bool(existing) and jcfg.is_valid_key(existing)}
 
     win = tk.Toplevel(root)
     win.title("STARK SYSTEM AUTH // GEMINI API KEY")
@@ -1080,6 +1080,7 @@ def api_key_dialog(root, first_run=False, on_saved=None, initial_key=""):
     steps = (
         "1.  Open Google AI Studio and sign in.\n"
         "2.  Click \"Create API key\" and copy the key.\n"
+        "    New keys start with AQ. Older keys start with AIza.\n"
         "3.  Paste it below and press SAVE KEY."
     )
     tk.Label(wrap, text=steps, bg=PANEL, fg=TEXT_MAIN, justify="left",
@@ -1124,7 +1125,7 @@ def api_key_dialog(root, first_run=False, on_saved=None, initial_key=""):
     def do_save():
         key = entry.get().strip()
         if not jcfg.is_valid_key(key):
-            status.set("Invalid key. It should start with AIza and be at least 20 characters.")
+            status.set("Invalid key. Paste the whole key (AIza... or AQ...) with no spaces.")
             entry.focus_set()
             return
         try:
@@ -1141,26 +1142,35 @@ def api_key_dialog(root, first_run=False, on_saved=None, initial_key=""):
                 pass
         win.after(650 if not first_run else 350, win.destroy)
 
-    def do_remove():
-        if not messagebox.askyesno("REMOVE API KEY",
-                                   "Remove the saved Gemini API key?", parent=win):
+    def do_reset():
+        if not messagebox.askyesno(
+            "RESET API KEY",
+            "This completely removes the saved Gemini API key.\n\n"
+            "The app config entry and the Windows GEMINI_API_KEY / "
+            "GOOGLE_API_KEY variables are cleared. You can then paste a new "
+            "key and press SAVE KEY.",
+            parent=win,
+        ):
             return
-        jcfg.clear_api_key()
-        for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY"):
-            os.environ.pop(name, None)
+        try:
+            jcfg.reset_api_key()
+        except Exception:
+            jcfg.clear_api_key()
+            for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY"):
+                os.environ.pop(name, None)
         entry.delete(0, "end")
         result["ok"] = False
-        status.set("Key removed. Jarvis cannot answer until a new key is saved.")
+        status.set("API key reset. Paste a new key (AIza... or AQ...) and press SAVE KEY.")
+        entry.focus_set()
 
     def do_close():
         win.destroy()
 
-    if existing:
-        tk.Button(buttons, text="REMOVE KEY", command=do_remove,
-                  bg="#3b0f1a", fg="#fecdd3", activebackground="#881337",
-                  activeforeground="#ffffff", relief="flat", bd=0,
-                  padx=12, pady=7, font=("Consolas", 9, "bold"),
-                  cursor="hand2").pack(side="left")
+    tk.Button(buttons, text="RESET KEY", command=do_reset,
+              bg="#3b0f1a", fg="#fecdd3", activebackground="#881337",
+              activeforeground="#ffffff", relief="flat", bd=0,
+              padx=12, pady=7, font=("Consolas", 9, "bold"),
+              cursor="hand2").pack(side="left")
     tk.Button(buttons, text="CLOSE" if not first_run else "EXIT",
               command=do_close, bg="#081422", fg=TEXT_DIM,
               activebackground="#0e243b", activeforeground=TEXT_MAIN,
@@ -1204,14 +1214,19 @@ def ensure_api_key(root) -> bool:
         return False
 
     saved = jcfg.get_saved_api_key()
-    if saved:
+    if saved and jcfg.is_valid_key(saved):
         os.environ["GEMINI_API_KEY"] = saved
         return True
 
-    # No key saved by the app yet: ask once, inside the app. If Windows has an
-    # old GEMINI_API_KEY, it is used to prefill the box so the user only has to
-    # press SAVE KEY.
-    return api_key_dialog(root, first_run=True, initial_key=jcfg.get_api_key())
+    # No usable key saved by the app yet: ask once, inside the app. If Windows
+    # has an old GEMINI_API_KEY, it is used to prefill the box so the user only
+    # has to press SAVE KEY. A broken saved key opens the same dialog prefilled
+    # so it can be replaced (RESET KEY clears it completely).
+    return api_key_dialog(
+        root,
+        first_run=not bool(saved),
+        initial_key=saved or jcfg.get_api_key(),
+    )
 
 
 def main():

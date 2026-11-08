@@ -9,7 +9,8 @@ brain. The key belongs to **you** — this project does not include one.
 2. Sign in with your Google account.
 3. Click **Create API key**.
 4. Choose a Google Cloud project (the default is fine).
-5. Copy the key. It starts with `AIza` and is about 39 characters long.
+5. Copy the key. New AI Studio keys start with `AQ.` (auth keys); older keys
+   start with `AIza` and are about 39 characters long.
 
 ## Add it to Jarvis
 
@@ -27,7 +28,9 @@ Click the **`[ API KEY ]`** button in the top bar of the HUD. The same dialog
 opens with the saved key masked. You can:
 
 - Replace it and press **SAVE KEY** (applied live).
-- Press **REMOVE KEY** to delete it.
+- Press **RESET KEY** to completely delete the old key from the app config and
+  from the Windows `GEMINI_API_KEY` / `GOOGLE_API_KEY` variables. Paste a new
+  key afterwards and press **SAVE KEY**.
 - Press **OPEN GOOGLE AI STUDIO** to create a new key.
 
 ## Where it is stored
@@ -55,7 +58,7 @@ The key saved by the app always comes first. Environment variables are only a
 fallback when no app key is saved yet — useful for temporary runs or CI:
 
 ```powershell
-$env:GEMINI_API_KEY = "AIza..."
+$env:GEMINI_API_KEY = "AQ..."   # or "AIza..." for an older key
 python jarvis_app.py
 ```
 
@@ -79,7 +82,8 @@ and asks for the key in the terminal, then saves it for next time.
 
 | Problem | Fix |
 |---------|-----|
-| “Invalid key” | The key must start with `AIza` and have no spaces. Copy it again. |
+| “Invalid key” | Paste the whole key with no spaces. Both `AQ.` (new) and `AIza` (older) formats are accepted. |
+| Old key stopped working | Open **`[ API KEY ]`**, press **RESET KEY**, then save a fresh key from Google AI Studio. |
 | Key works once, then fails | The key may be restricted to an API or project. Check Google AI Studio. |
 | “API key not valid” from Google | The key was deleted or the project was disabled. Create a new key. |
 | Key not remembered | Ensure `%APPDATA%\Jarvis` is writable and not blocked by antivirus. |

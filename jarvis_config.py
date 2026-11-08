@@ -29,6 +29,10 @@ CONFIG_ENV = "JARVIS_CONFIG"
 KEY_ENV_VARS = ("GEMINI_API_KEY", "GOOGLE_API_KEY")
 AI_STUDIO_URL = "https://aistudio.google.com/app/apikey"
 KEY_MIN_LENGTH = 20
+# Google rotates key formats: standard "AIza..." keys and the newer "AQ..."
+# auth keys. Keep both prefixes here for messages, but validation below only
+# rejects obvious typos so a future format cannot lock users out again.
+KEY_PREFIXES = ("AIza", "AQ.")
 
 
 def config_dir() -> Path:
@@ -104,16 +108,31 @@ def save_config(patch: Dict[str, Any] | None = None, **values: Any) -> Path:
     return _write_config(data)
 
 
-def is_valid_key(key: str) -> bool:
-    """Loose validation, so unusual but real keys are still accepted."""
+def normalize_key(key: str) -> str:
+    """Trim a pasted key and drop accidental surrounding quotes."""
     value = (key or "").strip()
-    return len(value) >= KEY_MIN_LENGTH and value.startswith("AIza")
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        value = value[1:-1].strip()
+    return value
+
+
+def is_valid_key(key: str) -> bool:
+    """Loose validation, so new Google key formats are still accepted.
+
+    Google now issues "AQ..." auth keys, while older accounts still have
+    "AIza..." keys. We only reject empty/short values, whitespace and control
+    characters; the Gemini API remains the final judge of a key.
+    """
+    value = normalize_key(key)
+    if len(value) < KEY_MIN_LENGTH:
+        return False
+    return all(33 <= ord(ch) <= 126 for ch in value)
 
 
 def get_saved_api_key() -> str:
     """Return only the key saved in the app config (never the environment)."""
     value = load_config().get("gemini_api_key", "")
-    return str(value or "").strip()
+    return normalize_key(str(value or ""))
 
 
 def get_api_key() -> str:
@@ -134,11 +153,11 @@ def get_api_key() -> str:
 
 def save_api_key(key: str) -> str:
     """Validate and persist the key. Raises ValueError for a bad key."""
-    value = (key or "").strip()
+    value = normalize_key(key)
     if not is_valid_key(value):
         raise ValueError(
-            "That does not look like a Gemini API key. "
-            "Create one at " + AI_STUDIO_URL
+            "That does not look like a Gemini API key. Paste the whole key "
+            "(it starts with AIza or AQ). Create one at " + AI_STUDIO_URL
         )
     save_config(gemini_api_key=value)
     os.environ["GEMINI_API_KEY"] = value
@@ -150,6 +169,17 @@ def clear_api_key() -> None:
     data = load_config()
     data.pop("gemini_api_key", None)
     _write_config(data)
+
+
+def reset_api_key() -> None:
+    """Completely reset the key: forget it on disk and in this process.
+
+    Use this before entering a new key when the old one is expired, revoked or
+    in an unsupported format.
+    """
+    clear_api_key()
+    for name in KEY_ENV_VARS:
+        os.environ.pop(name, None)
 
 
 def apply_api_key_to_env(key: str | None = None) -> str:

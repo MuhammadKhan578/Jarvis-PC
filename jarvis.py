@@ -515,7 +515,7 @@ if not _key:
     print("|  J.A.R.V.I.S. needs a free Google Gemini API key.               |")
     print("|  1. Open Google AI Studio and sign in.                          |")
     print("|  2. Click 'Create API key'.                                     |")
-    print("|  3. Paste the key below (it starts with AIza...).               |")
+    print("|  3. Paste the key below (AIza... or the newer AQ...).          |")
     print("+------------------------------------------------------------------+")
     print("  " + _studio)
     print("")

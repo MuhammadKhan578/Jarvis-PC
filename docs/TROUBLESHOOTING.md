@@ -54,12 +54,15 @@ The choice is saved in `jarvis_settings.json`.
   `gemini_api_key`, Jarvis skips the first-run dialog.
 - If no key is saved there, the app asks on every start until you press
   **SAVE KEY** — even if an old Windows `GEMINI_API_KEY` variable still exists.
-- To force the dialog, remove the key with the **REMOVE KEY** button or delete
+- To force the dialog, reset the key with the **RESET KEY** button or delete
   the config file.
 
 ## “Invalid key”
 
-- The key must start with `AIza` and contain no spaces or line breaks.
+- Paste the complete key with no spaces or line breaks. New Google AI Studio
+  keys start with `AQ.`; older keys start with `AIza`. Both are accepted.
+- If an old key stopped working, open **`[ API KEY ]`**, press **RESET KEY**,
+  then paste a fresh key and press **SAVE KEY**.
 - Create a fresh key at <https://aistudio.google.com/app/apikey>.
 - Make sure the Gemini API is enabled for the Google Cloud project.
 
