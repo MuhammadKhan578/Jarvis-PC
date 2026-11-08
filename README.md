@@ -20,6 +20,11 @@ no API keys, no logs, and no private data**.
 - Sends email through Gmail (optional, configured inside the app).
 - File search, cleanup, downloads and system controls.
 - Long-term memory, settings and companion topics stored locally.
+- **Smart home control** for lights, fans, AC, TV, doors, blinds, coffee machine
+  and plugs, plus one-word scenes (morning, movie, sleep, guest, work, away,
+  party). Works out of the box with a virtual home; optional Home Assistant
+  connection for real devices.
+- **News briefings** from Google News with no extra API key.
 - Optional `jarvis_skills/` folder for your own Python skills.
 
 ---
@@ -83,6 +88,39 @@ Say **â€œJarvis â€¦â€** followed by a command:
 | â€œJarvis, ye file dhundoâ€ | Searches files |
 | â€œJarvis, aaj ka mausam bataoâ€ | Answers with Gemini |
 | â€œJarvis, 10 minute ka timer lagaoâ€ | Sets a timer |
+| â€œJarvis, drawing room ki light on karoâ€ | Turns on a smart-home light |
+| â€œJarvis, bedroom AC 22 degree karoâ€ | Sets the AC temperature |
+| â€œJarvis, movie mode chalaoâ€ | Applies the movie scene |
+| â€œJarvis, ghar ka status bataoâ€ | Reports every smart device |
+| â€œJarvis, news sunaoâ€ | Reads the latest headlines |
+
+---
+
+## Smart home
+
+Jarvis ships with a complete **virtual home**, so nothing extra is required to
+try it. Every device keeps its state in `jarvis_data/smarthome.json`:
+
+- Lights in the drawing room, bedroom, kitchen, bathroom, study and garden
+  (on/off and brightness).
+- Fans in the bedroom and drawing room (on/off and speed).
+- ACs in the drawing room and bedroom (on/off and temperature).
+- TV (on/off, channel and volume).
+- Main and back doors (lock/unlock).
+- Blinds in the drawing room, bedroom and kitchen (open/close).
+- Coffee machine and charger/iron plugs (on/off).
+- Scenes: `morning`, `movie`, `sleep`, `guest`, `work`, `away`, `party`.
+
+### Optional Home Assistant
+
+If you already run Home Assistant, say **â€œconnect home assistantâ€** and give
+Jarvis the URL (for example `http://192.168.1.10:8123`) and a long-lived access
+token. Jarvis then mirrors every command to the real devices and can import
+their current state with **â€œsync homeâ€**. The token is stored only in
+`jarvis_data/smarthome_config.json` on your PC.
+
+Without Home Assistant everything still works locally, so the feature can never
+block the rest of the assistant.
 
 ---
 
@@ -105,6 +143,8 @@ Runtime data is created on your PC, never in the repository:
 - `jarvis_memory.json` â€” learned facts
 - `jarvis_settings.json` â€” voice, language, microphone
 - `jarvis_companion.json` â€” optional companion topics
+- `jarvis_data/smarthome.json` â€” smart-home device states
+- `jarvis_data/smarthome_config.json` â€” optional Home Assistant URL/token
 - `jarvis_data/`, `Jarvis_Documents/`, `Jarvis_Reports/` â€” logs and files
 
 These paths are listed in `.gitignore`.
@@ -115,6 +155,7 @@ These paths are listed in `.gitignore`.
 
 - Your Gemini key lives in `%APPDATA%\Jarvis\config.json`.
 - Memory and settings live in local files next to the app.
+- Smart-home state and an optional Home Assistant token stay on your PC.
 - No analytics, telemetry or cloud sync is included.
 - If you publish a fork, keep `.gitignore` intact and never commit runtime
   data or keys.

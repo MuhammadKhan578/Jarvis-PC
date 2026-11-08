@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 import time
 
-from . import core
+from . import core, news, smarthome
 from .agent import mission_operation, schedule_operation, skill_operation
 from .brain import brain_operation
 from .browser import browser_operation
@@ -155,4 +155,9 @@ TOOL_FUNCTIONS = [
     config_operation,
     ultimate_status,
     audit_operation,
+    smarthome.smart_home,
+    smarthome.smart_scene,
+    smarthome.smart_home_setup,
+    smarthome.smart_home_help,
+    news.news_brief,
 ]
