@@ -1,4 +1,4 @@
-﻿# J.A.R.V.I.S. Desktop Assistant (PC)
+# J.A.R.V.I.S. Desktop Assistant (PC)
 
 A Windows voice assistant with a Stark-style HUD. Talk in English or Roman
 Urdu and Jarvis can open apps, search the web, read your screen, manage files,
@@ -42,7 +42,7 @@ no API keys, no logs, and no private data**.
 ## Quick start
 
 1. **Install Python 3.10+** from <https://www.python.org/downloads/> and tick
-   **â€œAdd Python to PATHâ€** during setup.
+   **“Add Python to PATH”** during setup.
 2. **Install the dependencies** by double-clicking `install.bat` (or run
    `python -m pip install -r requirements.txt`).
 3. **Start Jarvis** by double-clicking `Jarvis.bat`.
@@ -78,24 +78,24 @@ It is never sent anywhere except Google's Gemini API. See
 
 ## Voice command examples
 
-Say **â€œJarvis â€¦â€** followed by a command:
+Say **“Jarvis …”** followed by a command:
 
 | Command | What it does |
 |---------|--------------|
-| â€œJarvis, brave kholoâ€ | Opens the Brave browser |
-| â€œJarvis, YouTube par lo-fi music chalaoâ€ | Plays music on YouTube |
-| â€œJarvis, notepad kholoâ€ | Opens Notepad |
-| â€œJarvis, volume 40 karoâ€ | Sets the volume |
-| â€œJarvis, brightness kam karoâ€ | Dims the screen |
-| â€œJarvis, screenshot loâ€ | Takes a screenshot |
-| â€œJarvis, ye file dhundoâ€ | Searches files |
-| â€œJarvis, aaj ka mausam bataoâ€ | Answers with Gemini |
-| â€œJarvis, 10 minute ka timer lagaoâ€ | Sets a timer |
-| â€œJarvis, drawing room ki light on karoâ€ | Turns on a smart-home light |
-| â€œJarvis, bedroom AC 22 degree karoâ€ | Sets the AC temperature |
-| â€œJarvis, movie mode chalaoâ€ | Applies the movie scene |
-| â€œJarvis, ghar ka status bataoâ€ | Reports every smart device |
-| â€œJarvis, news sunaoâ€ | Reads the latest headlines |
+| “Jarvis, brave kholo” | Opens the Brave browser |
+| “Jarvis, YouTube par lo-fi music chalao” | Plays music on YouTube |
+| “Jarvis, notepad kholo” | Opens Notepad |
+| “Jarvis, volume 40 karo” | Sets the volume |
+| “Jarvis, brightness kam karo” | Dims the screen |
+| “Jarvis, screenshot lo” | Takes a screenshot |
+| “Jarvis, ye file dhundo” | Searches files |
+| “Jarvis, aaj ka mausam batao” | Answers with Gemini |
+| “Jarvis, 10 minute ka timer lagao” | Sets a timer |
+| “Jarvis, drawing room ki light on karo” | Turns on a smart-home light |
+| “Jarvis, bedroom AC 22 degree karo” | Sets the AC temperature |
+| “Jarvis, movie mode chalao” | Applies the movie scene |
+| “Jarvis, ghar ka status batao” | Reports every smart device |
+| “Jarvis, news sunao” | Reads the latest headlines |
 
 ---
 
@@ -116,10 +116,10 @@ try it. Every device keeps its state in `jarvis_data/smarthome.json`:
 
 ### Optional Home Assistant
 
-If you already run Home Assistant, say **â€œconnect home assistantâ€** and give
+If you already run Home Assistant, say **“connect home assistant”** and give
 Jarvis the URL (for example `http://192.168.1.10:8123`) and a long-lived access
 token. Jarvis then mirrors every command to the real devices and can import
-their current state with **â€œsync homeâ€**. The token is stored only in
+their current state with **“sync home”**. The token is stored only in
 `jarvis_data/smarthome_config.json` on your PC.
 
 Without Home Assistant everything still works locally, so the feature can never
@@ -143,12 +143,12 @@ block the rest of the assistant.
 
 Runtime data is created on your PC, never in the repository:
 
-- `jarvis_memory.json` â€” learned facts
-- `jarvis_settings.json` â€” voice, language, microphone
-- `jarvis_companion.json` â€” optional companion topics
-- `jarvis_data/smarthome.json` â€” smart-home device states
-- `jarvis_data/smarthome_config.json` â€” optional Home Assistant URL/token
-- `jarvis_data/`, `Jarvis_Documents/`, `Jarvis_Reports/` â€” logs and files
+- `jarvis_memory.json` — learned facts
+- `jarvis_settings.json` — voice, language, microphone
+- `jarvis_companion.json` — optional companion topics
+- `jarvis_data/smarthome.json` — smart-home device states
+- `jarvis_data/smarthome_config.json` — optional Home Assistant URL/token
+- `jarvis_data/`, `Jarvis_Documents/`, `Jarvis_Reports/` — logs and files
 
 These paths are listed in `.gitignore`.
 
@@ -169,18 +169,18 @@ These paths are listed in `.gitignore`.
 
 See [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md). Common fixes:
 
-- **PyAudio fails to install** â€” use a Python version with prebuilt wheels
+- **PyAudio fails to install** — use a Python version with prebuilt wheels
   (3.11/3.12) or install it with `pipwin`.
-- **No microphone found** â€” click **SELECT MIC** in the HUD and pick the right
+- **No microphone found** — click **SELECT MIC** in the HUD and pick the right
   device.
-- **No sound** â€” install a male English (India) voice in Windows
+- **No sound** — install a male English (India) voice in Windows
   Settings > Time & language > Speech.
-- **Key not remembered** â€” check that `%APPDATA%\Jarvis\config.json` exists and
+- **Key not remembered** — check that `%APPDATA%\Jarvis\config.json` exists and
   is writable.
-- **"Invalid key" or an expired/blocked key** â€” open **`[ API KEY ]`**, press
+- **"Invalid key" or an expired/blocked key** — open **`[ API KEY ]`**, press
   **RESET KEY**, then paste a fresh key from Google AI Studio (new keys start
   with `AQ.`; older ones with `AIza...`).
-- **HUD does not start** â€” run `python jarvis_app.py` in a terminal to see the
+- **HUD does not start** — run `python jarvis_app.py` in a terminal to see the
   full error.
 
 ---
