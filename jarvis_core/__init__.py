@@ -486,11 +486,11 @@ def _install_client(g: dict):
         genai_mod = g.get("genai")
         types_mod = g.get("types")
         if genai_mod and types_mod:
-            # 8 s: long enough for the 70+ tool schemas, short enough that a
+            # 12 s: long enough for the 70+ tool schemas, short enough that a
             # dead request cannot make the user wait 30-47 seconds.
-            g["client_fast"] = genai_mod.Client(http_options=types_mod.HttpOptions(timeout=15000))
+            g["client_fast"] = genai_mod.Client(http_options=types_mod.HttpOptions(timeout=12000))
             g["_jarvis_ultimate_client"] = True
-            core.log("Chat client timeout set to 15s (tool calls need room; API minimum is 10s).")
+            core.log("Chat client timeout set to 12s (tool calls need room; API minimum is 10s).")
     except Exception as e:
         core.log(f"could not set the chat timeout: {e}")
 

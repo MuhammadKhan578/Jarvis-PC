@@ -25,6 +25,9 @@ no API keys, no logs, and no private data**.
   party). Works out of the box with a virtual home; optional Home Assistant
   connection for real devices.
 - **News briefings** from Google News with no extra API key.
+- **Ultra Fast voice mode (v1.8.0)** — flash-lite model first, minimal thinking,
+  shorter context, faster TTS start and quicker end-of-speech detection for
+  snappier replies.
 - Optional `jarvis_skills/` folder for your own Python skills.
 
 ---

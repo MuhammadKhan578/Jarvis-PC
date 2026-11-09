@@ -94,6 +94,7 @@ VOICE_LOCK = True
 
 LANG_MODE = "both"  # "both" = match the language you speak | "en" = English only | "ur" = Roman Urdu only
 STT_LANG = "en-IN"  # language used to understand your speech (en-IN also understands Roman Urdu words well)
+JARVIS_VERSION = "1.8.0"  # shown in the start-up banner and the HUD title
 
 # ⚡ MICROPHONE
 #   MIC_MODE "auto"    = Jarvis scans your microphones and uses one that really hears sound (virtual ones are skipped)
@@ -115,7 +116,7 @@ last_input_lang = ["en"]  # language of the last command ("en" or "ur"), used wh
 MIC_MIN_TRIGGER = 28       # a sound must be at least this loud (0-32767) to count as speech
 MIC_MIN_RISE = 18          # ... and at least this much louder than the room noise
 MIC_NOISE_MULT = 3.0       # ... and this many times the room noise
-MIC_END_PAUSE = 0.8        # seconds of quiet that end a sentence (slow speaker? raise it to 1.0 or 1.2)
+MIC_END_PAUSE = 0.7        # seconds of quiet that end a sentence (slow speaker? raise it to 1.0 or 1.2)
 MIC_PHRASE_MAX = 14.0      # longest sentence in seconds
 MIC_MIN_VOICED = 0.25      # shorter sounds are clicks / noise and are ignored
 MIC_BOOST_TARGET = 4000    # a quiet microphone is amplified up to about this level before recognition
@@ -470,17 +471,17 @@ SITES = {
 # False = Jarvis ALWAYS uses your chosen male/female Edge voice. (True = when the Edge voice is slow,
 # Google's backup voice speaks instead, and that backup voice is FEMALE.)
 TTS_BACKUP = False
-TTS_EDGE_PATIENCE = 3.0    # only used when TTS_BACKUP is True
-TTS_ONE_SHOT_MAX = 180     # small pieces start playing much sooner on a slow network
+TTS_EDGE_PATIENCE = 2.5    # only used when TTS_BACKUP is True
+TTS_ONE_SHOT_MAX = 160     # small pieces start playing much sooner on a slow network
 # If the online Edge voice is not ready within this many seconds, speak the
 # reply with a fallback voice instead of leaving the user in silence.
 # Fallback order: Google translate voice -> Windows voice (if installed).
 # Set to 0 to always wait for the online voice (the old, slow behaviour).
-TTS_FAST_START = 4.0
-TTS_TOTAL_TIMEOUT = 30.0
+TTS_FAST_START = 2.5
+TTS_TOTAL_TIMEOUT = 20.0
 # When the chosen MALE voice is slow, Jarvis may wait this much longer for it
 # instead of instantly switching to Google's female backup voice.
-TTS_MALE_PATIENCE = 10.0
+TTS_MALE_PATIENCE = 5.5
 # False = NEVER use a female voice as a fallback.  The male Edge voice (or the
 # English male voice for a Roman-Urdu line) is the only backup.
 TTS_ALLOW_FEMALE_FALLBACK = False
@@ -540,9 +541,9 @@ else:
 
 # three clients: a quick one (a slow model is dropped after 12 s and the next model answers),
 # a normal one (screen reading, research ...) and a patient one for hard questions
-client = genai.Client(http_options=types.HttpOptions(timeout=15000))
-client_fast = genai.Client(http_options=types.HttpOptions(timeout=15000))
-client_smart = genai.Client(http_options=types.HttpOptions(timeout=15000))
+client = genai.Client(http_options=types.HttpOptions(timeout=12000))
+client_fast = genai.Client(http_options=types.HttpOptions(timeout=12000))
+client_smart = genai.Client(http_options=types.HttpOptions(timeout=12000))
 pygame.mixer.init()
 
 TEMP_AUDIO_PATH = os.path.join(tempfile.gettempdir(), "jarvis_voice.mp3")
@@ -630,7 +631,7 @@ def _cache_put(voice: str, text: str, data: bytes):
 
 
 async def _fetch_edge_audio(text: str, voice: str) -> bytes:
-    communicate = edge_tts.Communicate(text, voice, rate="+15%")
+    communicate = edge_tts.Communicate(text, voice, rate="+18%")
     chunks = []
     async for chunk in communicate.stream():
         if chunk["type"] == "audio":
@@ -1176,8 +1177,8 @@ RETRY_CODES = {408, 500, 502, 503, 504}
 
 # Hard time budget for one spoken answer.  The microphone -> complete reply must
 # stay inside 5-10 seconds, so Jarvis never waits for a chain of slow retries.
-BRAIN_BUDGET_FAST = 10.5    # normal question / command
-BRAIN_BUDGET_SMART = 11.0   # "smart" question (needs the stronger model)
+BRAIN_BUDGET_FAST = 8.0    # normal question / command
+BRAIN_BUDGET_SMART = 9.0   # "smart" question (needs the stronger model)
 MAX_MODEL_TRIES_FAST = 3
 MAX_MODEL_TRIES_SMART = 2
 
@@ -1319,7 +1320,7 @@ def _generate(contents, config):
     last = None
     t_begin = time.time()
     for model in order:
-        if last is not None and time.time() - t_begin > 20:
+        if last is not None and time.time() - t_begin > 12:
             break
         for _ in range(2):
             t_try = time.time()
@@ -1347,7 +1348,7 @@ def _generate(contents, config):
                 if time.time() - t_try > 8:
                     _cool(model, 30)
                     break
-                time.sleep(0.5)
+                time.sleep(0.25)
     if last:
         raise last
     raise RuntimeError("No Gemini model available.")
@@ -3693,6 +3694,7 @@ def _preload_voice_cache():
     ] + [v[2] for v in _ST_REPLIES.values()]
     english_lines = ["At your service, sir.", "I am listening, sir.",
                      "Standing by. Call me whenever you need, sir.",
+                     "All systems initialized and online, sir.",
                      "Voice changed, sir."] + [en for _, _, en in ACKS.values()] + [v[0] for v in _ST_REPLIES.values()]
     jobs = [(URDU_VOICE, l) for l in urdu_lines] + [(VOICE_NAME, l) for l in english_lines]
     for voice, line in jobs:
@@ -4631,8 +4633,20 @@ def _fix_tool(fn):
     return fixed
 
 
+_TOOLS_CACHE = {"key": None, "tools": []}
+
+
 def _clean_tools():
-    return [_fix_tool(t) for t in list(TOOLS)]
+    tools = list(TOOLS)
+    # Tool schemas are expensive to introspect (70+ functions).  Rebuild them
+    # only when the tool list really changed, so every chat rebuild is instant.
+    key = tuple(id(t) for t in tools)
+    if _TOOLS_CACHE["key"] == key:
+        return _TOOLS_CACHE["tools"]
+    cleaned = [_fix_tool(t) for t in tools]
+    _TOOLS_CACHE["key"] = key
+    _TOOLS_CACHE["tools"] = cleaned
+    return cleaned
 
 
 SYSTEM_PROMPT = (
@@ -4773,7 +4787,7 @@ def make_chat(model: str, history=None, smart: bool = False):
                           history=history or [])
 
 
-def _compact_history(history, keep: int = 16):
+def _compact_history(history, keep: int = 12):
     out = []
     for c in history or []:
         parts = c.parts or []
@@ -4899,7 +4913,7 @@ def ask_gemini(user_input: str):
         use_smart = smart and model in SMART_CANDIDATES
         if chat_cfg != [model, use_smart]:
             _rebuild_chat(model, use_smart)
-        slow_limit = 8.0 if use_smart else 6.5
+        slow_limit = 6.0 if use_smart else 5.0
         for attempt in range(2):
             if attempts_left <= 0 or (attempt and time.time() - t_begin >= budget):
                 break
@@ -4962,7 +4976,7 @@ def ask_gemini(user_input: str):
                     if time.time() - t_try > 5:
                         _cool(model, 30)
                         break
-                    time.sleep(0.15)
+                    time.sleep(0.08)
                     continue
                 _rebuild_chat(model, use_smart)
     if last:
@@ -5418,7 +5432,11 @@ def _recognize_speech(recognizer, audio):
     last_error = None
     variants = [audio]
     try:
-        if audioop is not None and getattr(audio, "sample_width", 2) == 2:
+        # Only retry a louder copy when the clip is genuinely quiet.  The
+        # microphone boost already normalises normal speech, so a second cloud
+        # request would just add about a second of delay.
+        if (audioop is not None and getattr(audio, "sample_width", 2) == 2
+                and _rms16(audio.frame_data) < 600):
             louder = sr.AudioData(audioop.mul(audio.frame_data, 2, 2.0),
                                   audio.sample_rate, audio.sample_width)
             variants.append(louder)
@@ -5443,7 +5461,7 @@ def _recognize_speech(recognizer, audio):
 def mic_listener():
     global ACTIVE_MIC_INDEX, ACTIVE_MIC_NAME, MIC_MODE
     recognizer = sr.Recognizer()
-    recognizer.operation_timeout = 8
+    recognizer.operation_timeout = 6
     fails = 0
 
     while True:
@@ -5742,6 +5760,7 @@ def _prewarm_voice():
     except Exception:
         pass
     lines += [
+        "All systems initialized and online, sir.",
         "Sir, internet ka masla lag raha hai. Dobara bolein.",
         "سر، انٹرنیٹ کا مسئلہ لگ رہا ہے۔ دوبارہ بولیں۔",
         "Sir, Gemini ka server abhi slow hai, is liye jawab nahi aaya. Dobara bolein.",
@@ -5781,7 +5800,8 @@ def run_jarvis():
         _set_live(True)
 
     print("=" * 60)
-    print(" J.A.R.V.I.S. SYSTEM ONLINE (Voice Engine v3 + Instant Launcher + Living Companion)")
+    print(f" J.A.R.V.I.S. SYSTEM ONLINE v{JARVIS_VERSION} "
+          "(Ultra Fast + Voice Engine v3 + Instant Launcher + Living Companion)")
     print(f" - Model: {active_model} (auto-fallback + auto-discovery)")
     print(f" - Voice: {VOICE_GENDER.upper()} ({VOICE_NAME} / {URDU_VOICE})  |  Language: {LANG_MODE.upper()}")
     print(f" - Voice lock: {'ON (stays MALE; say/type unlock voice to change)' if VOICE_LOCK else 'OFF'}")
