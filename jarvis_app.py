@@ -30,7 +30,7 @@ LOG_FILE = os.path.join(APP_DIR, "jarvis_app.log")
 AI_STUDIO_URL = getattr(jcfg, "AI_STUDIO_URL", "https://aistudio.google.com/app/apikey")
 
 PREFERRED_MIC = ""
-VERSION = "1.8.0"
+VERSION = "1.9.0"
 
 # ---------- STARK HUD COLOR PALETTE ----------
 BG = "#030712"

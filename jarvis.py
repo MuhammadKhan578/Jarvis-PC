@@ -94,7 +94,7 @@ VOICE_LOCK = True
 
 LANG_MODE = "both"  # "both" = match the language you speak | "en" = English only | "ur" = Roman Urdu only
 STT_LANG = "en-IN"  # language used to understand your speech (en-IN also understands Roman Urdu words well)
-JARVIS_VERSION = "1.8.0"  # shown in the start-up banner and the HUD title
+JARVIS_VERSION = "1.9.0"  # shown in the start-up banner and the HUD title
 
 # ⚡ MICROPHONE
 #   MIC_MODE "auto"    = Jarvis scans your microphones and uses one that really hears sound (virtual ones are skipped)
@@ -472,16 +472,20 @@ SITES = {
 # Google's backup voice speaks instead, and that backup voice is FEMALE.)
 TTS_BACKUP = False
 TTS_EDGE_PATIENCE = 2.5    # only used when TTS_BACKUP is True
-TTS_ONE_SHOT_MAX = 160     # small pieces start playing much sooner on a slow network
+TTS_ONE_SHOT_MAX = 110     # small pieces start playing much sooner on a slow network
+# The very first piece is kept tiny (2-4 words).  Edge TTS needs ~0.9-1.5 s
+# even for a few characters, so a short first piece is what makes the voice
+# start right after the reply text instead of several seconds later.
+TTS_FIRST_CHUNK_MAX = 34
 # If the online Edge voice is not ready within this many seconds, speak the
 # reply with a fallback voice instead of leaving the user in silence.
 # Fallback order: Google translate voice -> Windows voice (if installed).
 # Set to 0 to always wait for the online voice (the old, slow behaviour).
-TTS_FAST_START = 2.5
+TTS_FAST_START = 2.2
 TTS_TOTAL_TIMEOUT = 20.0
 # When the chosen MALE voice is slow, Jarvis may wait this much longer for it
 # instead of instantly switching to Google's female backup voice.
-TTS_MALE_PATIENCE = 5.5
+TTS_MALE_PATIENCE = 2.0
 # False = NEVER use a female voice as a fallback.  The male Edge voice (or the
 # English male voice for a Roman-Urdu line) is the only backup.
 TTS_ALLOW_FEMALE_FALLBACK = False
@@ -647,7 +651,7 @@ async def _fetch_with_retry(text: str, voice: str) -> bytes:
             break
         try:
             data = await asyncio.wait_for(_fetch_edge_audio(text, voice),
-                                          timeout=min(left, 12 + len(text) / 30))
+                                          timeout=min(left, 4.0 + len(text) / 40.0, 10.0))
             if data and len(data) > 100:
                 return data
         except asyncio.CancelledError:
@@ -867,34 +871,55 @@ def _google_speak(text: str, voice: str = "") -> bool:
     return True
 
 
+def _take_first_chunk(text: str):
+    """Split off a tiny, natural first piece so audio starts almost instantly.
+
+    Edge TTS latency grows with the amount of text, so the first piece is kept
+    to a few words.  It prefers a comma / full stop inside the limit, otherwise
+    it cuts at the last word boundary.
+    """
+    if len(text) <= TTS_FIRST_CHUNK_MAX:
+        return text, ""
+    window = text[:TTS_FIRST_CHUNK_MAX + 1]
+    cut = -1
+    for m in re.finditer(r'[.?!۔؟,،;:]', window):
+        if m.end() >= 18:          # do not cut at a tiny "Sir,"
+            cut = m.end()
+    if cut < 10:
+        cut = text.rfind(' ', 0, TTS_FIRST_CHUNK_MAX + 1)
+    if cut < 10:
+        cut = TTS_FIRST_CHUNK_MAX
+    return text[:cut].strip(), text[cut:].strip()
+
+
 def _split_speech_chunks(text: str):
     text = re.sub(r'\s+', ' ', text or '').strip()
     if not text:
         return []
-    if len(text) <= TTS_ONE_SHOT_MAX:
-        return [text]
-    chunks, cur = [], ''
-    for s in re.split(r'(?<=[.?!۔؟])\s+', text):
-        if not s:
-            continue
-        if cur and len(cur) + 1 + len(s) > TTS_ONE_SHOT_MAX:
+    first, rest = _take_first_chunk(text)
+    pieces = [first] if first else []
+    if rest:
+        chunks, cur = [], ''
+        for s in re.split(r'(?<=[.?!۔؟])\s+', rest):
+            if not s:
+                continue
+            if cur and len(cur) + 1 + len(s) > TTS_ONE_SHOT_MAX:
+                chunks.append(cur)
+                cur = s
+            else:
+                cur = (cur + ' ' + s).strip()
+        if cur:
             chunks.append(cur)
-            cur = s
-        else:
-            cur = (cur + ' ' + s).strip()
-    if cur:
-        chunks.append(cur)
-    out = []
-    for c in chunks:
-        while len(c) > TTS_ONE_SHOT_MAX + 120:
-            cut = c.rfind(' ', 0, TTS_ONE_SHOT_MAX)
-            if cut <= 0:
-                cut = TTS_ONE_SHOT_MAX
-            out.append(c[:cut].strip())
-            c = c[cut:].strip()
-        if c:
-            out.append(c)
-    return [c for c in out if re.search(r'\w', c)] or [text]
+        for c in chunks:
+            while len(c) > TTS_ONE_SHOT_MAX + 120:
+                cut = c.rfind(' ', 0, TTS_ONE_SHOT_MAX)
+                if cut <= 0:
+                    cut = TTS_ONE_SHOT_MAX
+                pieces.append(c[:cut].strip())
+                c = c[cut:].strip()
+            if c:
+                pieces.append(c)
+    return [c for c in pieces if re.search(r'\w', c)] or [text]
 
 
 def _ensure_mixer() -> bool:
@@ -988,7 +1013,7 @@ def speak(text: str, urdu: str = None):
                     first_ready = False
             if not first_ready:
                 fallback_text = target_text or roman_fallback
-                print(f"[TTS]: Edge voice slow (> {TTS_FAST_START:g}s) -> fallback voice")
+                print(f"[TTS]: first audio not ready after {TTS_FAST_START:g}s; giving it a moment")
                 male_only = VOICE_GENDER == "male" and not TTS_ALLOW_FEMALE_FALLBACK
                 if male_only:
                     # The voice must stay MALE.  Give the chosen Edge voice a
@@ -1007,8 +1032,8 @@ def speak(text: str, urdu: str = None):
                     alt_text = roman_fallback or re.sub(
                         r'[^\x00-\x7F]+', ' ', target_text).strip()
                     alt_voice = VOICES["male"]["en"]
-                    if alt_text:
-                        alt = _get_audio_data(alt_text, alt_voice, timeout=8.0)
+                    if alt_text and alt_voice != voice:
+                        alt = _get_audio_data(alt_text, alt_voice, timeout=4.0)
                         if alt:
                             print("[TTS]: male English voice used as backup")
                             _play_bytes(alt)
@@ -1045,7 +1070,7 @@ def speak(text: str, urdu: str = None):
                         alt_text = re.sub(r'[^\x00-\x7F]+', ' ', piece).strip() or roman_fallback
                         alt_voice = VOICES["male"]["en"] if voice != VOICES["male"]["en"] else ""
                         if alt_text and alt_voice:
-                            alt = _get_audio_data(alt_text, alt_voice, timeout=8.0)
+                            alt = _get_audio_data(alt_text, alt_voice, timeout=4.0)
                             if alt:
                                 print("[TTS]: male English voice used as backup")
                                 _play_bytes(alt)
@@ -1134,7 +1159,7 @@ def _roman_to_urdu(text: str) -> str:
             max_output_tokens=400,
             system_instruction=("Translate the user's Roman Urdu sentence into Urdu script. "
                                 "Return ONLY the Urdu sentence, no explanation."),
-            http_options=types.HttpOptions(timeout=10000),
+            http_options=types.HttpOptions(timeout=2500),
         )
         resp = client_fast.models.generate_content(model=model, contents=text, config=cfg)
         out = (getattr(resp, "text", None) or "").strip()
