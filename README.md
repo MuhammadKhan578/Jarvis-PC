@@ -1,4 +1,4 @@
-﻿# J.A.R.V.I.S. â€” Desktop Assistant (PC)
+﻿# J.A.R.V.I.S. Desktop Assistant (PC)
 
 A Windows voice assistant with a Stark-style HUD. Talk in English or Roman
 Urdu and Jarvis can open apps, search the web, read your screen, manage files,
