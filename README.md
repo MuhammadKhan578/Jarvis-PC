@@ -25,9 +25,14 @@ no API keys, no logs, and no private data**.
   party). Works out of the box with a virtual home; optional Home Assistant
   connection for real devices.
 - **News briefings** from Google News with no extra API key.
-- **Ultra Fast voice mode (v1.9.0)** — flash-lite model first, minimal thinking,
+- **Ultra Fast voice mode (v2.0.0)** — flash-lite model first, minimal thinking,
   shorter context, an ultra-short first TTS piece and tighter fallback timing so
   the voice starts right after the reply text.
+- **Full-reply voice fix (v2.0.0)** — if the first audio arrives a little late,
+  Jarvis now speaks every remaining piece instead of stopping after the first
+  few words.
+- **Reliable name memory (v2.0.0)** — tell Jarvis your name once and it is saved
+  automatically, even if the model forgets to call the memory tool.
 - Optional `jarvis_skills/` folder for your own Python skills.
 
 ---

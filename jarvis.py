@@ -94,7 +94,7 @@ VOICE_LOCK = True
 
 LANG_MODE = "both"  # "both" = match the language you speak | "en" = English only | "ur" = Roman Urdu only
 STT_LANG = "en-IN"  # language used to understand your speech (en-IN also understands Roman Urdu words well)
-JARVIS_VERSION = "1.9.0"  # shown in the start-up banner and the HUD title
+JARVIS_VERSION = "2.0.0"  # shown in the start-up banner and the HUD title
 
 # ⚡ MICROPHONE
 #   MIC_MODE "auto"    = Jarvis scans your microphones and uses one that really hears sound (virtual ones are skipped)
@@ -880,13 +880,13 @@ def _take_first_chunk(text: str):
     """
     if len(text) <= TTS_FIRST_CHUNK_MAX:
         return text, ""
-    window = text[:TTS_FIRST_CHUNK_MAX + 1]
+    window = text[:TTS_FIRST_CHUNK_MAX]
     cut = -1
     for m in re.finditer(r'[.?!۔؟,،;:]', window):
         if m.end() >= 18:          # do not cut at a tiny "Sir,"
             cut = m.end()
     if cut < 10:
-        cut = text.rfind(' ', 0, TTS_FIRST_CHUNK_MAX + 1)
+        cut = text.rfind(' ', 0, TTS_FIRST_CHUNK_MAX)
     if cut < 10:
         cut = TTS_FIRST_CHUNK_MAX
     return text[:cut].strip(), text[cut:].strip()
@@ -1025,19 +1025,23 @@ def speak(text: str, urdu: str = None):
                     except Exception:
                         late = b""
                     if late:
-                        _play_bytes(late)
-                        return
-                    # Second chance: the same male line in the English male
-                    # voice (works when only the Urdu voice endpoint failed).
-                    alt_text = roman_fallback or re.sub(
-                        r'[^\x00-\x7F]+', ' ', target_text).strip()
-                    alt_voice = VOICES["male"]["en"]
-                    if alt_text and alt_voice != voice:
-                        alt = _get_audio_data(alt_text, alt_voice, timeout=4.0)
-                        if alt:
-                            print("[TTS]: male English voice used as backup")
-                            _play_bytes(alt)
-                            return
+                        # The first piece arrived late.  Do NOT return here:
+                        # that used to speak only the first few words and drop
+                        # the rest of the reply.  Fall through to the normal
+                        # loop so every piece is spoken.
+                        first_ready = True
+                    else:
+                        # Second chance: the same male line in the English male
+                        # voice (works when only the Urdu voice endpoint failed).
+                        alt_text = roman_fallback or re.sub(
+                            r'[^\x00-\x7F]+', ' ', target_text).strip()
+                        alt_voice = VOICES["male"]["en"]
+                        if alt_text and alt_voice != voice:
+                            alt = _get_audio_data(alt_text, alt_voice, timeout=4.0)
+                            if alt:
+                                print("[TTS]: male English voice used as backup")
+                                _play_bytes(alt)
+                                return
                 else:
                     # female voice selected (or female fallback allowed)
                     if _google_speak(fallback_text, voice):
@@ -1047,15 +1051,16 @@ def speak(text: str, urdu: str = None):
                     except Exception:
                         late = b""
                     if late:
-                        _play_bytes(late)
-                        return
-                # 3) Windows voice, when this PC actually has one.
-                local_text = roman_fallback or re.sub(
-                    r'[^\x00-\x7F]+', ' ', target_text).strip()
-                if not local_text or not _sapi_say(local_text):
-                    print("[TTS]: no MALE voice available right now "
-                          "(male-only mode: female fallback is disabled).")
-                return
+                        # Same as above: speak the rest of the reply too.
+                        first_ready = True
+                if not first_ready:
+                    # 3) Windows voice, when this PC actually has one.
+                    local_text = roman_fallback or re.sub(
+                        r'[^\x00-\x7F]+', ' ', target_text).strip()
+                    if not local_text or not _sapi_say(local_text):
+                        print("[TTS]: no MALE voice available right now "
+                              "(male-only mode: female fallback is disabled).")
+                    return
 
             for i, piece in enumerate(chunks):
                 if stop_flag.is_set():
@@ -2652,6 +2657,67 @@ def recall_memories() -> str:
     """Returns everything Jarvis has saved about the user."""
     mem = _load_mem()
     return json.dumps(mem, ensure_ascii=False) if mem else "No memories saved yet."
+
+
+_NAME_STOP_WORDS = {
+    "kya", "kia", "kaun", "kon", "kaise", "kaisay", "kahan", "kyun", "kyu",
+    "hai", "hain", "hoon", "hun", "ha", "nahi", "nahin", "na", "not", "no",
+    "and", "aur", "but", "lekin", "please", "sir", "madam", "yaad", "save",
+    "batao", "bata", "bataye", "dein", "do", "theek", "ok", "okay",
+    "کیا", "کون", "کیسے", "کہاں", "کیوں", "ہے", "ہیں", "ہوں", "نہیں", "نہ",
+    "اور", "لیکن", "سر", "یاد", "محفوظ", "بتائیں", "بتاؤ",
+}
+
+
+def _clean_name_candidate(raw: str) -> str:
+    """Keeps 1-3 real name words; stops at question/verb words."""
+    out = []
+    for word in re.split(r"\s+", (raw or "").strip()):
+        word = word.strip(" .,!?;:،؛؟'\"")
+        if not word:
+            continue
+        if word.lower() in _NAME_STOP_WORDS or word in _NAME_STOP_WORDS:
+            break
+        out.append(word)
+        if len(out) >= 3:
+            break
+    name = " ".join(out).strip()
+    if not name or len(name) > 60 or re.search(r"\d", name):
+        return ""
+    return name
+
+
+def _auto_remember_name(text: str) -> str:
+    """Saves the user's name even when the model forgets to call remember()."""
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    patterns = (
+        r"\bmy name is\s+([^\n.!?]{1,60})",
+        r"\bmera\s+(?:naam|nam|name)\s+([^\n.!?]{1,60})",
+        r"میرا\s+نام\s+([^\n۔؟!]{1,60})",
+    )
+    name = ""
+    for pattern in patterns:
+        match = re.search(pattern, raw, re.I)
+        if match:
+            name = _clean_name_candidate(match.group(1))
+            if name:
+                break
+    if not name:
+        # The user is answering Jarvis's "what is your name?" question.
+        question = (last_question.get("text") or "").lower()
+        if (("naam" in question or "name" in question)
+                and any(k in question for k in ("bata", "save", "yaad", "kya", "بتا", "یاد"))):
+            if 1 <= len(raw.split()) <= 4:
+                name = _clean_name_candidate(raw)
+    if not name:
+        return ""
+    mem = _load_mem()
+    if (mem.get("user_name") or "").strip().lower() != name.lower():
+        remember("user_name", name)
+        print(f"[Memory]: saved user_name = {name}")
+    return name
 
 
 def get_weather(city: str = "") -> str:
@@ -5656,6 +5722,10 @@ def handle_command(user_input: str):
     """Everything Jarvis does for ONE command. (return = this command is finished)"""
     low = user_input.lower()
     last_input_lang[0] = _detect_lang(user_input)
+    try:
+        _auto_remember_name(user_input)
+    except Exception:
+        pass
 
     if _is_exit_command(low):
         afk_stop.set()
@@ -5826,7 +5896,7 @@ def run_jarvis():
 
     print("=" * 60)
     print(f" J.A.R.V.I.S. SYSTEM ONLINE v{JARVIS_VERSION} "
-          "(Ultra Fast + Voice Engine v3 + Instant Launcher + Living Companion)")
+          "(Ultra Fast + Instant Voice Engine v4 + Instant Launcher + Living Companion)")
     print(f" - Model: {active_model} (auto-fallback + auto-discovery)")
     print(f" - Voice: {VOICE_GENDER.upper()} ({VOICE_NAME} / {URDU_VOICE})  |  Language: {LANG_MODE.upper()}")
     print(f" - Voice lock: {'ON (stays MALE; say/type unlock voice to change)' if VOICE_LOCK else 'OFF'}")

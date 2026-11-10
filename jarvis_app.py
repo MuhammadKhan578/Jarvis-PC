@@ -30,7 +30,7 @@ LOG_FILE = os.path.join(APP_DIR, "jarvis_app.log")
 AI_STUDIO_URL = getattr(jcfg, "AI_STUDIO_URL", "https://aistudio.google.com/app/apikey")
 
 PREFERRED_MIC = ""
-VERSION = "1.9.0"
+VERSION = "2.0.0"
 
 # ---------- STARK HUD COLOR PALETTE ----------
 BG = "#030712"
@@ -396,7 +396,7 @@ class App:
                            highlightbackground="#0d243a")
         top_bar.pack(side="top", fill="x")
 
-        self.t_brand = tk.Label(top_bar, text=f"STARK INDUSTRIES // MARK VIII // J.A.R.V.I.S. v{VERSION}",
+        self.t_brand = tk.Label(top_bar, text=f"STARK INDUSTRIES // MARK IX // J.A.R.V.I.S. v{VERSION}",
                                 bg="#050c18", fg=CYAN_GLOW, font=("Consolas", 9, "bold"))
         self.t_brand.pack(side="left", padx=16, pady=4)
 
