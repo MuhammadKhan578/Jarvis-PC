@@ -94,7 +94,7 @@ VOICE_LOCK = True
 
 LANG_MODE = "both"  # "both" = match the language you speak | "en" = English only | "ur" = Roman Urdu only
 STT_LANG = "en-IN"  # language used to understand your speech (en-IN also understands Roman Urdu words well)
-JARVIS_VERSION = "2.0.0"  # shown in the start-up banner and the HUD title
+JARVIS_VERSION = "2.1.0"  # shown in the start-up banner and the HUD title
 
 # ⚡ MICROPHONE
 #   MIC_MODE "auto"    = Jarvis scans your microphones and uses one that really hears sound (virtual ones are skipped)

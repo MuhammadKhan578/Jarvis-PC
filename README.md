@@ -33,6 +33,11 @@ no API keys, no logs, and no private data**.
   few words.
 - **Reliable name memory (v2.0.0)** — tell Jarvis your name once and it is saved
   automatically, even if the model forgets to call the memory tool.
+- **Memory Core panel + instant recap (v2.1.0)** — a new **[ MEMORY ]** button in
+  the HUD opens a live view of everything Jarvis knows (facts by category, pins,
+  episodes and archive). It can refresh, show a spoken-style recap, back up the
+  memory files and export a report. Say "memory recap" for the same summary
+  instantly, without waiting for Gemini.
 - Optional `jarvis_skills/` folder for your own Python skills.
 
 ---

@@ -515,6 +515,86 @@ def overview() -> str:
     return "\n".join(lines)
 
 
+_RECAP_ORDER = ("identity", "preference", "project", "goal", "routine", "work",
+                "health", "people", "general")
+_RECAP_LABEL = {
+    "identity": "About you", "preference": "Preferences", "project": "Projects",
+    "goal": "Goals", "routine": "Routine", "work": "Work or study",
+    "health": "Health", "people": "People", "general": "Other details",
+}
+
+
+def recap(limit: int = 8) -> str:
+    """A short, speakable summary of the most useful memories.
+
+    Used by the instant "memory recap" command and the HUD Memory Core panel.
+    It reads only the local memory store, so it never waits for the network.
+    """
+    try:
+        data = _load_raw()
+    except Exception as e:
+        return f"Memory is not available right now, sir: {e}"
+    facts = data.get("facts", {}) or {}
+    profile = data.get("profile", {}) or {}
+    pins = list_pins(3)
+    if not facts and not pins and not data.get("episodes"):
+        return ("I do not have any long-term memories yet, sir. Say 'yaad rakho' "
+                "and tell me something about yourself.")
+    chunks = []
+    seen = set()
+    name = str(profile.get("name") or profile.get("user_name") or "").strip()
+    if name:
+        chunks.append(f"Your name is {name}")
+        seen.add(name.lower())
+    for key in ("city", "occupation"):
+        value = str(profile.get(key) or "").strip()
+        if value and value.lower() not in seen:
+            chunks.append(f"Your {key} is {value}")
+            seen.add(value.lower())
+    if pins:
+        pin_text = "; ".join(core.truncate(p.get("text", ""), 140) for p in pins if p.get("text"))
+        if pin_text:
+            chunks.append("Pinned: " + pin_text)
+    by_cat = {}
+    for key, value in facts.items():
+        if not isinstance(value, dict):
+            continue
+        category = str(value.get("category") or "general")
+        text = str(value.get("value") or "").strip()
+        if text:
+            by_cat.setdefault(category, []).append((key, text))
+    used = 0
+    per_cat = max(1, int(limit) // 4)
+    for category in _RECAP_ORDER:
+        items = by_cat.get(category) or []
+        items.sort(key=lambda kv: -_importance(facts, kv[0]))
+        picked = []
+        for _key, value in items:
+            low = value.lower().strip(" .")
+            if not low or low in seen:
+                continue
+            seen.add(low)
+            picked.append(core.truncate(value, 140))
+            used += 1
+            if len(picked) >= per_cat or used >= max(1, int(limit)):
+                break
+        if picked:
+            chunks.append(f"{_RECAP_LABEL.get(category, category.title())}: " + "; ".join(picked))
+        if used >= max(1, int(limit)):
+            break
+    eps = recent_episodes(2)
+    ep_lines = [core.truncate(e.get("summary", ""), 160) for e in eps if e.get("summary")]
+    if ep_lines:
+        chunks.append("Recently: " + "; ".join(ep_lines))
+    if not chunks:
+        return ("I do not have any long-term memories yet, sir. Say 'yaad rakho' "
+                "and tell me something about yourself.")
+    stats = _archive_stats_dict()
+    tail = f"My permanent archive also holds {stats['messages']} messages."
+    text = "Here is what I remember, sir. " + ". ".join(chunks) + ". " + tail
+    return text[:1600]
+
+
 def memory_stats() -> str:
     data = _load_raw()
     a = _archive_stats_dict()
@@ -735,6 +815,7 @@ def memory_operation(action: str = "overview", key: str = "", value: str = "",
       recall        - search facts, pins AND the permanent verbatim archive
       timeline      - show the chronological archive (query optional)
       stats         - memory sizes and archive status
+      recap         - short spoken summary of the most useful memories
       overview      - show everything remembered
       forget        - delete one structured fact by key (archive is kept)
       episode       - save an episodic memory (value = summary, category = comma tags)
@@ -767,6 +848,8 @@ def memory_operation(action: str = "overview", key: str = "", value: str = "",
         return timeline(query or key or value, limit)
     if a in ("stats", "status", "memory_status"):
         return memory_stats()
+    if a in ("recap", "summary", "digest", "brief"):
+        return recap(limit)
     if a in ("overview", "all", "list"):
         return overview()
     if a in ("forget", "delete", "remove"):

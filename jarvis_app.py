@@ -30,7 +30,7 @@ LOG_FILE = os.path.join(APP_DIR, "jarvis_app.log")
 AI_STUDIO_URL = getattr(jcfg, "AI_STUDIO_URL", "https://aistudio.google.com/app/apikey")
 
 PREFERRED_MIC = ""
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 
 # ---------- STARK HUD COLOR PALETTE ----------
 BG = "#030712"
@@ -412,6 +412,14 @@ class App:
                                highlightbackground="#133654")
         self.b_key.pack(side="right", padx=(0, 8), pady=2)
 
+        self.b_mem = tk.Button(top_bar, text="[ MEMORY ]", command=self.open_memory_core,
+                               bg="#081422", fg=TEXT_DIM, activebackground="#0e243b",
+                               activeforeground=CYAN_GLOW, relief="flat", bd=0,
+                               padx=8, pady=2, font=("Consolas", 9, "bold"),
+                               cursor="hand2", highlightthickness=1,
+                               highlightbackground="#133654")
+        self.b_mem.pack(side="right", padx=(0, 8), pady=2)
+
         main_work = tk.Frame(root, bg=BG)
         main_work.pack(fill="both", expand=True, padx=12, pady=10)
 
@@ -786,6 +794,86 @@ class App:
         e.bind("<Return>", go)
         e.bind("<Escape>", lambda ev: w.destroy())
         w.after(150, lambda: (w.lift(), w.focus_force(), e.focus_force()))
+
+    def open_memory_core(self):
+        """Open a read-only view of the local long-term memory."""
+        try:
+            from jarvis_core import memory as jmemory
+        except Exception as e:
+            messagebox.showerror("Memory Core", "Memory module could not be loaded:\n\n" + str(e))
+            return
+
+        K = self.K
+        win = tk.Toplevel(self.root)
+        win.title(f"J.A.R.V.I.S. // MEMORY CORE // v{VERSION}")
+        win.configure(bg=BG)
+        win.geometry(f"{int(780 * K)}x{int(620 * K)}")
+        win.minsize(int(560 * K), int(420 * K))
+
+        head = tk.Frame(win, bg=PANEL, highlightthickness=1, highlightbackground=PANEL_BORDER)
+        head.pack(fill="x", padx=10, pady=(10, 6))
+        tk.Label(head, text="LONG-TERM MEMORY // LOCAL ONLY", bg=PANEL, fg=CYAN_GLOW,
+                 font=("Consolas", 10, "bold")).pack(side="left", padx=12, pady=8)
+        tk.Label(head, text="FACTS · PINS · EPISODES · ARCHIVE", bg=PANEL, fg=TEXT_DIM,
+                 font=("Consolas", 8)).pack(side="right", padx=12)
+
+        body = tk.Frame(win, bg="#040b14")
+        body.pack(fill="both", expand=True, padx=10, pady=4)
+        sb = tk.Scrollbar(body, bg="#040b14", troughcolor="#040b14")
+        sb.pack(side="right", fill="y")
+        txt = tk.Text(body, bg="#040b14", fg=TEXT_MAIN, wrap="word", relief="flat", bd=0,
+                      padx=12, pady=10, font=("Consolas", 10), state="disabled",
+                      yscrollcommand=sb.set)
+        txt.pack(side="left", fill="both", expand=True)
+        sb.config(command=txt.yview)
+
+        def show(text):
+            txt.config(state="normal")
+            txt.delete("1.0", "end")
+            txt.insert("1.0", str(text or ""))
+            txt.config(state="disabled")
+
+        def refresh():
+            try:
+                show(jmemory.overview())
+            except Exception as e:
+                show("Memory could not be read:\n\n" + str(e))
+
+        def show_recap():
+            try:
+                show(jmemory.recap())
+            except Exception as e:
+                show("Recap failed:\n\n" + str(e))
+
+        def backup():
+            try:
+                show(jmemory.backup_memory(force=True))
+            except Exception as e:
+                show("Backup failed:\n\n" + str(e))
+
+        def export_report():
+            try:
+                show(jmemory.memory_operation("export"))
+            except Exception as e:
+                show("Export failed:\n\n" + str(e))
+
+        btns = tk.Frame(win, bg=BG)
+        btns.pack(fill="x", padx=10, pady=(2, 10))
+
+        def mkbtn(text, cmd):
+            return tk.Button(btns, text=text, command=cmd, bg="#081422", fg=TEXT_MAIN,
+                             activebackground="#0e243b", activeforeground=CYAN_GLOW,
+                             relief="flat", bd=0, padx=10, pady=6,
+                             font=("Consolas", 9, "bold"), cursor="hand2",
+                             highlightthickness=1, highlightbackground="#133654")
+
+        mkbtn("[ REFRESH ]", refresh).pack(side="left", padx=3)
+        mkbtn("[ RECAP ]", show_recap).pack(side="left", padx=3)
+        mkbtn("[ BACKUP ]", backup).pack(side="left", padx=3)
+        mkbtn("[ EXPORT REPORT ]", export_report).pack(side="left", padx=3)
+        mkbtn("[ CLOSE ]", win.destroy).pack(side="right", padx=3)
+
+        win.after(120, refresh)
 
     def open_api_key_dialog(self):
         """Open the API key editor from the HUD and apply a new key live."""

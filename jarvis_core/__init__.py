@@ -794,6 +794,14 @@ def command_hook(user_input: str, g: dict | None = None) -> bool:
         core.say_lang(text, text, text)
         return True
 
+    # memory recap: instant spoken summary of the most useful memories ----
+    if any(t in low for t in ("memory recap", "recap memory", "memory ka khulasa",
+                              "memory digest", "memory summary", "apni memory ka recap",
+                              "mujhe recap do", "mujhe apni memory batao")):
+        text = memory.recap()
+        core.say_lang(text, text, text)
+        return True
+
     # Ultimate Reasoning Core -------------------------------------------
     if "brain status" in low or "reasoning core status" in low or "ultimate brain status" in low:
         text = brain.brain_operation("status")
