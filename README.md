@@ -38,7 +38,30 @@ no API keys, no logs, and no private data**.
   episodes and archive). It can refresh, show a spoken-style recap, back up the
   memory files and export a report. Say "memory recap" for the same summary
   instantly, without waiting for Gemini.
+- **Global dictation + voice edits (v2.2.0)** - press **Ctrl+Alt+V** (or say
+  "start dictation") and speak into any Windows app: Word, Outlook, Slack, a
+  browser field or a code editor. Say "scratch that", "capitalize that",
+  "new paragraph", "comma" or "period" to edit, and "stop dictation" to finish.
+- **Personality and your writing voice (v2.2.0)** - choose a personality
+  (jarvis, professional, friendly, concise, mentor, creative or custom) and
+  teach Jarvis your own writing style from samples. Give feedback such as
+  "be less formal" and it applies to future drafts.
+- **Local calendar (v2.2.0)** - create, read, reschedule and delete events in
+  natural language ("meeting kal 3 baje"), invite people by email with an
+  `.ics` attachment, and export the whole calendar to the Desktop.
+- **Real work tools (v2.2.0)** - GitHub (issues and PRs), Slack (read, summarize
+  and post), Notion (search, read, create, append, comment), Linear and Jira
+  through their official APIs. Tokens live only in the local, git-ignored config.
+- **MCP server + client (v2.2.0)** - `jarvis-memory` exposes memory, calendar,
+  persona and workspace status to Claude Code, Cursor or Codex over stdio, and
+  Jarvis can call remote streamable-HTTP MCP servers with their own tools.
+- **Assistant Hub (v2.2.0)** - a new **[ ASSISTANT ]** button shows dictation
+  status, personality, the next 7 days of calendar, connected work tools and MCP
+  helpers in one panel.
 - Optional `jarvis_skills/` folder for your own Python skills.
+
+See [`docs/ASSISTANT.md`](docs/ASSISTANT.md) for dictation, calendar, work-tool,
+MCP, personality setup and the privacy/platform notes.
 
 ---
 
@@ -148,6 +171,12 @@ block the rest of the assistant.
 | `jarvis_app.py` | Stark HUD (Tkinter) and first-run API key dialog |
 | `jarvis_config.py` | Per-user config / API-key storage |
 | `jarvis_core/` | Upgrade layer: memory, documents, mail, research, HUD tools |
+| `jarvis_core/dictation.py` | Global dictation + voice edits (Ctrl+Alt+V) |
+| `jarvis_core/calendar_tools.py` | Local calendar, invitations and `.ics` export |
+| `jarvis_core/workspace.py` | GitHub, Slack, Notion, Linear and Jira adapters |
+| `jarvis_core/mcp.py` | `jarvis-memory` MCP server + HTTP MCP client |
+| `jarvis_core/persona.py` | Personality and writing-voice learning |
+| `jarvis_mcp_server.py` | stdio entrypoint for other MCP agents |
 | `jarvis_skills/` | Optional user skills |
 | `Jarvis.bat` | Launches the HUD |
 | `install.bat` | Installs Python dependencies |

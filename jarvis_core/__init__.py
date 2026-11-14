@@ -20,9 +20,9 @@ import threading
 import time
 import typing
 
-from . import agent, brain, core, diagnostics, documents, hud, integrations, mail, memory, research, resume, tools, voice
+from . import agent, brain, calendar_tools, core, diagnostics, dictation, documents, hud, integrations, mail, mcp, memory, persona, research, resume, tools, voice, workspace
 
-__version__ = "3.0"
+__version__ = "3.1"
 
 PROMPT_ADDENDUM = r"""
 ## ULTIMATE CAPABILITIES (added by jarvis_core)
@@ -69,6 +69,25 @@ NEW TOOLS
   email_operation(action="unread") first, then summarise only what the tool actually returned.
 - hud_operation(...) — show/hide the arc-reactor overlay.
 - config_operation(...) / ultimate_status() / audit_operation(...) — settings, status, transparency.
+- dictation_operation(action="start"|"stop"|"toggle"|"status"|"type", text) — global dictation.
+  Speech is typed into whatever app has focus. Ctrl+Alt+V also toggles it. While dictating,
+  "scratch that", "capitalize that", "new paragraph", "comma", "period" and
+  "stop dictation" edit the text. Use action="type" to insert exact text instantly.
+- calendar_operation(action="add"|"list"|"update"|"delete"|"invite"|"export", ...) — the
+  real local calendar. Times: "tomorrow 5 pm", "kal 3 baje", "in 2 hours", ISO.
+  Create an event, read the day/week, reschedule, delete, email an .ics invitation,
+  or export everything to the Desktop. Always use this tool for meetings, not a guess.
+- workspace_operation(action=..., service="github"|"slack"|"notion"|"linear"|"jira", ...) —
+  real work apps. list/search/read/summarize/draft_reply/create/comment/append/send.
+  Configure once with action="configure" and the user's own token. Never invent a
+  message, issue or page: report exactly what the API returned.
+- mcp_operation(action=...) — the built-in jarvis-memory MCP server (stdio) and the
+  streamable-HTTP MCP client. Use action="config" to show the Claude/Cursor config,
+  action="add_server"/"list_tools"/"call" for remote MCP tools.
+- persona_operation(action="show"|"set"|"custom"|"learn"|"feedback"|"draft"|"reset", ...) —
+  personality and the user's writing voice. When the user says "be more concise",
+  "likho meri tarah", "learn my writing", or gives feedback on a draft, use this.
+  action="draft" rewrites text in the learned voice.
 
 HOW TO USE THEM
 1. Prefer ONE strong tool over many small steps. For example, for "make me a report on X and a Word
@@ -157,6 +176,8 @@ STYLE
 Speak like J.A.R.V.I.S.: calm, precise, quietly witty, always "sir". Keep spoken replies short (1-4
 sentences) unless the user asked for detail. Put long content in a report or page, not in speech.
 Match the user's language: English, Roman Urdu or Urdu, exactly as they spoke.
+The [USER PERSONALITY AND WRITING STYLE] block overrides this default tone: follow the chosen
+personality and, when drafting on the user's behalf, match their learned writing voice.
 """
 
 _INSTALL_LOCK = threading.Lock()
@@ -327,7 +348,8 @@ def _install_context(g: dict):
                 text = str(msg)
             extra = memory.context_for(text)
             hints = agent._skill_hint_block()
-            block = "\n\n".join(x for x in (extra, hints) if x)
+            style = persona.prompt_block()
+            block = "\n\n".join(x for x in (extra, hints, style) if x)
             if block and isinstance(out, list):
                 # Prefix with the same marker the original compactor drops, so the
                 # memory block is always fresh instead of piling up in history.
@@ -534,6 +556,10 @@ def install(g: dict) -> dict:
             voice._install_mic_resolver(g)
         except Exception as e:
             core.log(f"mic resolver install failed: {e}")
+        try:
+            dictation.register_hotkeys(g)
+        except Exception as e:
+            core.log(f"dictation hotkey install failed: {e}")
         g["_jarvis_archive_say"] = memory.archive_assistant
         try:
             memory.ensure_archive()
@@ -966,6 +992,34 @@ def command_hook(user_input: str, g: dict | None = None) -> bool:
         agent.start_mission(goal, background=True)
         return True
 
+    # dictation -----------------------------------------------------------
+    if re.search(r"^(?:please\s+)?(?:start|begin|shuru)\s+(?:the\s+)?dictation\b|"
+                 r"^dictation\s+(?:start|on|chalu)\b|\bbol\s+kar\s+likh(?:o|na)\b", low):
+        text = dictation.dictation_operation("start")
+        core.say_lang(text, "Dictation on hai, sir. Jo bolein, likh raha hoon.",
+                      "ڈکٹیشن آن ہے، سر۔")
+        return True
+    if re.search(r"\b(?:stop|end|band)\s+(?:the\s+)?dictation\b|^dictation\s+(?:stop|off|band)\b", low):
+        text = dictation.dictation_operation("stop")
+        core.say_lang(text, "Dictation band kar diya, sir.", "ڈکٹیشن بند کر دیا، سر۔")
+        return True
+
+    # calendar ------------------------------------------------------------
+    if re.search(r"^(?:my\s+)?(?:calendar|appointments?|meetings?|schedule\s+today)\b", low) or \
+            re.search(r"\b(?:what'?s|kya)\b.*\b(?:calendar|appointments?|meetings?)\b", low):
+        span = "week" if words & {"week", "hafte", "haftey"} else (
+            "today" if words & {"today", "aaj"} else "upcoming")
+        text = calendar_tools.calendar_operation("list", range=span)
+        core.say_lang(text, text, text)
+        return True
+
+    # personality / writing voice -----------------------------------------
+    if (words & {"personality", "persona", "style"}) and words & {
+            "show", "status", "batao", "dikhao", "kya", "what"}:
+        text = persona.persona_operation("show")
+        core.say_lang(text, text, text)
+        return True
+
     return False
 
 
@@ -976,6 +1030,7 @@ __all__ = [
     "install", "start_background", "command_hook", "after_command", "PROMPT_ADDENDUM",
     "TOOLS", "__version__", "core", "memory", "research", "documents", "agent", "hud",
     "integrations", "diagnostics", "tools", "brain", "voice", "mail", "resume",
+    "calendar_tools", "dictation", "workspace", "mcp", "persona",
 ]
 
 TOOLS = tools.TOOL_FUNCTIONS

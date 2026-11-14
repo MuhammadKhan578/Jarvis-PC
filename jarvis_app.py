@@ -30,7 +30,7 @@ LOG_FILE = os.path.join(APP_DIR, "jarvis_app.log")
 AI_STUDIO_URL = getattr(jcfg, "AI_STUDIO_URL", "https://aistudio.google.com/app/apikey")
 
 PREFERRED_MIC = ""
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 
 # ---------- STARK HUD COLOR PALETTE ----------
 BG = "#030712"
@@ -419,6 +419,14 @@ class App:
                                cursor="hand2", highlightthickness=1,
                                highlightbackground="#133654")
         self.b_mem.pack(side="right", padx=(0, 8), pady=2)
+
+        self.b_assist = tk.Button(top_bar, text="[ ASSISTANT ]", command=self.open_assistant_hub,
+                                  bg="#081422", fg=TEXT_DIM, activebackground="#0e243b",
+                                  activeforeground=CYAN_GLOW, relief="flat", bd=0,
+                                  padx=8, pady=2, font=("Consolas", 9, "bold"),
+                                  cursor="hand2", highlightthickness=1,
+                                  highlightbackground="#133654")
+        self.b_assist.pack(side="right", padx=(0, 8), pady=2)
 
         main_work = tk.Frame(root, bg=BG)
         main_work.pack(fill="both", expand=True, padx=12, pady=10)
@@ -871,6 +879,108 @@ class App:
         mkbtn("[ RECAP ]", show_recap).pack(side="left", padx=3)
         mkbtn("[ BACKUP ]", backup).pack(side="left", padx=3)
         mkbtn("[ EXPORT REPORT ]", export_report).pack(side="left", padx=3)
+        mkbtn("[ CLOSE ]", win.destroy).pack(side="right", padx=3)
+
+        win.after(120, refresh)
+
+    def open_assistant_hub(self):
+        """One place for the 2.2 assistant features: dictation, calendar, work tools, MCP, persona."""
+        K = self.K
+        win = tk.Toplevel(self.root)
+        win.title(f"J.A.R.V.I.S. // ASSISTANT HUB // v{VERSION}")
+        win.configure(bg=BG)
+        win.geometry(f"{int(820 * K)}x{int(600 * K)}")
+        win.minsize(int(620 * K), int(420 * K))
+
+        head = tk.Frame(win, bg=PANEL, highlightthickness=1, highlightbackground=PANEL_BORDER)
+        head.pack(fill="x", padx=10, pady=(10, 6))
+        tk.Label(head, text="ASSISTANT HUB // DICTATION · CALENDAR · WORK · MCP", bg=PANEL,
+                 fg=CYAN_GLOW, font=("Consolas", 10, "bold")).pack(side="left", padx=12, pady=8)
+        tk.Label(head, text="LOCAL FIRST", bg=PANEL, fg=TEXT_DIM,
+                 font=("Consolas", 8)).pack(side="right", padx=12)
+
+        body = tk.Frame(win, bg="#040b14")
+        body.pack(fill="both", expand=True, padx=10, pady=4)
+        sb = tk.Scrollbar(body, bg="#040b14", troughcolor="#040b14")
+        sb.pack(side="right", fill="y")
+        txt = tk.Text(body, bg="#040b14", fg=TEXT_MAIN, wrap="word", relief="flat", bd=0,
+                      padx=12, pady=10, font=("Consolas", 10), state="disabled",
+                      yscrollcommand=sb.set)
+        txt.pack(side="left", fill="both", expand=True)
+        sb.config(command=txt.yview)
+
+        def show(text):
+            txt.config(state="normal")
+            txt.delete("1.0", "end")
+            txt.insert("1.0", str(text or ""))
+            txt.config(state="disabled")
+
+        def refresh():
+            lines = []
+            try:
+                from jarvis_core import calendar_tools, dictation as jdict, mcp as jmcp
+                from jarvis_core import persona as jpersona, workspace as jworkspace
+                lines.append("DICTATION")
+                lines.append(jdict.status())
+                lines.append("")
+                lines.append("PERSONALITY / WRITING VOICE")
+                lines.append(jpersona.style_line())
+                lines.append("")
+                lines.append("CALENDAR (next 7 days)")
+                lines.append(calendar_tools.upcoming(7))
+                lines.append("")
+                lines.append("WORK TOOLS")
+                lines.append(jworkspace.status_text())
+                lines.append("")
+                lines.append("MCP")
+                lines.append(jmcp.mcp_operation("status"))
+            except Exception as e:
+                lines.append("Hub could not load every module:\n" + str(e))
+            show("\n".join(lines))
+
+        def toggle_dictation():
+            try:
+                from jarvis_core import dictation as jdict
+                show(jdict.toggle())
+            except Exception as e:
+                show("Dictation error:\n\n" + str(e))
+
+        def open_calendar():
+            try:
+                from jarvis_core import calendar_tools
+                show(calendar_tools.calendar_operation("list", range="week"))
+            except Exception as e:
+                show("Calendar error:\n\n" + str(e))
+
+        def show_persona():
+            try:
+                from jarvis_core import persona
+                show(persona.persona_operation("show"))
+            except Exception as e:
+                show("Persona error:\n\n" + str(e))
+
+        def mcp_config():
+            try:
+                from jarvis_core import mcp as jmcp
+                show(jmcp.mcp_operation("config"))
+            except Exception as e:
+                show("MCP error:\n\n" + str(e))
+
+        btns = tk.Frame(win, bg=BG)
+        btns.pack(fill="x", padx=10, pady=(2, 10))
+
+        def mkbtn(text, cmd):
+            return tk.Button(btns, text=text, command=cmd, bg="#081422", fg=TEXT_MAIN,
+                             activebackground="#0e243b", activeforeground=CYAN_GLOW,
+                             relief="flat", bd=0, padx=9, pady=6,
+                             font=("Consolas", 9, "bold"), cursor="hand2",
+                             highlightthickness=1, highlightbackground="#133654")
+
+        mkbtn("[ DICTATION ON/OFF ]", toggle_dictation).pack(side="left", padx=3)
+        mkbtn("[ CALENDAR ]", open_calendar).pack(side="left", padx=3)
+        mkbtn("[ PERSONALITY ]", show_persona).pack(side="left", padx=3)
+        mkbtn("[ MCP CONFIG ]", mcp_config).pack(side="left", padx=3)
+        mkbtn("[ REFRESH ]", refresh).pack(side="left", padx=3)
         mkbtn("[ CLOSE ]", win.destroy).pack(side="right", padx=3)
 
         win.after(120, refresh)
