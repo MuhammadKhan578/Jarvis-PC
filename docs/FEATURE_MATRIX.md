@@ -1,4 +1,4 @@
-# Jarvis PC v2.4.3 feature matrix
+# Jarvis PC v2.4.4 feature matrix
 
 This maps the public assistant checklist to concrete code and verification.
 “Implemented” does not mean a third-party account is magically available: live
@@ -31,6 +31,7 @@ token and the service must be online.
 | 22 | Phone agent | `showcase.py` | ADB/provider dial hand-off with confirmation; call status/transcript only from a configured real provider. |
 | 23 | Steam/Epic library | `games.py` | Real Steam manifest and Epic launcher metadata, update scan and disk-space check; install/update opens the real client only after confirmation. |
 | 24 | Phone → PC Device Link | `device_link.py` | One-time code pairs the phone on the LAN; any file is staged with a 200 MB cap; Jarvis asks where to save it by voice; confirmed save verifies bytes and never overwrites silently. `/link/command` carries voice commands from the phone without a SIM number. |
+| 25 | Free local voice line | `asterisk_line.py`, `asterisk/` | Asterisk (free) in WSL + SIP softphone: inbound speech commands on extension 1002 and opt-in outbound call to 1001 via AMI Originate. FastAGI records with consent, transcribes, runs the same guarded command hook, speaks the reply and logs a local transcript. No Twilio account or per-minute fee; real PSTN still needs a trunk/gateway. |
 
 ## Runtime reality
 

@@ -8,8 +8,8 @@ from __future__ import annotations
 import os
 import time
 
-from . import (calendar_tools, core, device_link, dictation, games, mcp, media_tools, news,
-               persona, phone_line, privacy, showcase, smarthome, workspace)
+from . import (asterisk_line, calendar_tools, core, device_link, dictation, games, mcp,
+               media_tools, news, persona, phone_line, privacy, showcase, smarthome, workspace)
 from .agent import mission_operation, schedule_operation, skill_operation
 from .brain import brain_operation
 from .browser import browser_operation
@@ -216,6 +216,15 @@ TOOL_FUNCTIONS = [
     phone_line.phone_line_operation,
     phone_line.phone_line_call,
     phone_line.phone_line_webhook,
+    asterisk_line.asterisk_operation,
+    asterisk_line.asterisk_start,
+    asterisk_line.asterisk_stop,
+    asterisk_line.asterisk_status,
+    asterisk_line.asterisk_configure,
+    asterisk_line.asterisk_call,
+    asterisk_line.asterisk_call_me,
+    asterisk_line.start_agi_server,
+    asterisk_line.stop_agi_server,
     device_link.device_link_operation,
     device_link.device_link_start,
     device_link.device_link_stop,

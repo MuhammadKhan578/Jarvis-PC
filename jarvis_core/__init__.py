@@ -20,8 +20,8 @@ import threading
 import time
 import typing
 
-from . import (agent, brain, calendar_tools, core, diagnostics, device_link, dictation,
-               documents, games, hud, integrations, mail, mcp, media_tools,
+from . import (agent, asterisk_line, brain, calendar_tools, core, diagnostics, device_link,
+               dictation, documents, games, hud, integrations, mail, mcp, media_tools,
                memory, persona, phone_line, privacy, research, resume, showcase,
                tools, voice, workspace)
 
@@ -115,6 +115,13 @@ NEW TOOLS
 - phone_line_operation(...) / phone_line_call(...) / phone_line_webhook(...) — a real
   Twilio voice line: inbound speech commands over the phone, outbound "call me", consent
   before recording, and local transcript logs. Needs locally configured Twilio credentials.
+- asterisk_operation(...) / asterisk_start() / asterisk_stop() / asterisk_status() /
+  asterisk_call(...) / asterisk_call_me(...) — a FREE local Asterisk voice line: open-source
+  PBX plus a local FastAGI listener, stdlib sockets, local male-voice pyttsx3 WAVs and the
+  same free speech_recognition/Google Web Speech STT used on this PC. It is NOT Twilio and
+  NOT a PSTN/SIM number: a real public phone number still needs a user-provided trunk or
+  GSM/SIM gateway. The `target` is a dialplan label, not a dialed number; outbound calls
+  need confirmed=True and success is claimed only when AMI answers Response: Success.
 - remove_background(...) — real rembg-based background removal into a new PNG; reports
   honestly if rembg is not installed. Never overwrites the original.
 - commerce_operation(action="cart_add", item=...) — real Edge DevTools add-to-cart attempt
@@ -811,6 +818,55 @@ def command_hook(user_input: str, g: dict | None = None) -> bool:
             return True
     except Exception as e:
         core.log(f"voice command hook failed: {e}")
+
+    # free local Asterisk line (NOT Twilio, NOT a PSTN/SIM number) -------
+    if "asterisk" in low:
+        if low in ("asterisk line status", "asterisk status", "asterisk line haal") or (
+                "asterisk line" in low and words & {"status", "haal"}):
+            text = asterisk_line.asterisk_status()
+            core.say_lang(text, text, text)
+            return True
+        if low in ("asterisk line start", "asterisk start", "asterisk line on",
+                   "asterisk chalao") or (
+                "asterisk line" in low and words & {"start", "chalao", "on"}):
+            text = asterisk_line.asterisk_start()
+            core.say_lang(text, text, text)
+            return True
+        if low in ("asterisk line stop", "asterisk stop", "asterisk line off",
+                   "asterisk band") or (
+                "asterisk line" in low and words & {"stop", "band", "off"}):
+            text = asterisk_line.asterisk_stop()
+            core.say_lang(text, text, text)
+            return True
+        # This phrase IS the explicit opt-in for an outbound local call.
+        if (low in ("call me via asterisk", "asterisk call me", "mujhe asterisk se call karo",
+                    "asterisk se call karo", "call me through asterisk") or
+                ("asterisk" in low and "call me" in low) or
+                ("asterisk" in low and "mujhe" in words and "call" in words and
+                 "karo" in words)):
+            text = asterisk_line.asterisk_call_me(confirmed=True)
+            core.say_lang(text, text, text)
+            return True
+        setup_match = re.match(
+            r"^(?:please\s+)?asterisk\s+(?:setup|configure)\s+(.+)$", user_input, re.I)
+        if setup_match:
+            parts = setup_match.group(1).strip().split()
+            if len(parts) >= 3:
+                text = asterisk_line.asterisk_configure(
+                    host=parts[0], username=parts[1], secret=parts[2],
+                    outbound_extension=parts[3] if len(parts) >= 4 else "1001")
+            else:
+                text = ("Asterisk setup needs: asterisk configure <host> <username> <secret> "
+                        "[extension]. I did not get all three required parts, so nothing was "
+                        "changed. This is a free local Asterisk line, not a PSTN number.")
+            core.say_lang(text, text, text)
+            return True
+        call_match = re.match(r"^(?:please\s+)?asterisk\s+call\s+(.+)$", user_input, re.I)
+        if call_match:
+            text = asterisk_line.asterisk_call(call_match.group(1).strip(" ,:-"),
+                                               confirmed=True)
+            core.say_lang(text, text, text)
+            return True
 
     # permanent memory: explicit "never forget" -------------------------
     exact_m = re.match(

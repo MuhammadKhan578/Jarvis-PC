@@ -1,6 +1,6 @@
-# Jarvis assistant features (v2.4.3)
+# Jarvis assistant features (v2.4.4)
 
-This guide covers the assistant layer through **v2.4.3**: global dictation,
+This guide covers the assistant layer through **v2.4.4**: global dictation,
 personality and writing voice, email/calendar, routines, real browser/Windows
 automation, connected work tools, MCP, reel features, the phone-to-PC Device
 Link and privacy controls. Runtime data stays on your PC unless you explicitly
@@ -16,6 +16,17 @@ PC Jarvis asks where to save it. Reply **"Downloads"** or
 **"confirm save"**; no overwrite happens without that. **"PC Jarvis ko call
 karo"** on the phone starts a Wi-Fi voice intercom — no phone number is involved.
 See `docs/PC_LINK.md`.
+
+### Free Asterisk voice line (v2.4.4)
+
+Twilio ke bina bhi phone-style commands chal sakte hain. Run
+`asterisk\setup_asterisk.ps1` once: wo WSL me free Asterisk install karke
+softphone extension `1001` aur AMI secret banayega. Phir bolo
+`asterisk setup <host> jarvis <secret> 1001` aur `asterisk line start`.
+Ab softphone se `1002` dial karke command do, ya bolo
+`mujhe asterisk se call karo` — Jarvis aapko call karega. Ye local extension hai;
+real SIM/number ke liye SIP trunk/GSM gateway chahiye. See
+`docs/ASTERISK_LINE.md`.
 
 ---
 

@@ -93,6 +93,12 @@ no API keys, no logs, and no private data**.
   one-time code, receive any file (photo, zip, video, document) directly into PC
   Jarvis, answer where to save it by voice, and take voice commands from the
   phone without a SIM number. See `docs/PC_LINK.md`.
+- **Free Asterisk line (v2.4.4)** - a real local voice line with **no Twilio and
+  no per-minute fee**. Asterisk in WSL + any SIP softphone: call extension `1002`
+  to give Jarvis spoken commands, or say "mujhe asterisk se call karo" and
+  extension `1001` rings. Consent before recording, male voice, local transcripts.
+  Real SIM/PSTN numbers still need a SIP trunk or GSM gateway. See
+  `docs/ASTERISK_LINE.md` and `asterisk/setup_asterisk.ps1`.
 - Optional `jarvis_skills/` folder for your own Python skills.
 
 > Dictation latency depends on the microphone, phrase length, speech-recognition
