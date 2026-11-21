@@ -1,6 +1,6 @@
-# Jarvis assistant features (v2.4.1)
+# Jarvis assistant features (v2.4.2)
 
-This guide covers the assistant layer through **v2.4.1**: global dictation,
+This guide covers the assistant layer through **v2.4.2**: global dictation,
 personality and writing voice, email/calendar, routines, real browser/Windows
 automation, connected work tools, MCP, reel features and privacy controls.
 Runtime data stays on your PC unless you explicitly invoke a cloud model/service.

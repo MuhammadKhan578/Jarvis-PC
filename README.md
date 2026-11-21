@@ -76,7 +76,7 @@ no API keys, no logs, and no private data**.
 - **MCP connections for coding agents (v2.3.0)** - `jarvis-memory` now adds
   read-only connected-workspace queries and quick cited research, alongside
   memory, calendar and writing-style context.
-- **Reel feature pack (v2.4.1)** - live ISS position and a refreshable HUD map;
+- **Reel feature pack (v2.4.2)** - live ISS position and a refreshable HUD map;
   real FFmpeg video trim/cut/auto-cut and local video understanding; local photo
   analysis and real photo edits (resize, crop, 9:16/1:1/16:9 presets, rotate,
   flip, enhance, grayscale, sepia, blur and text); a temporary visual guide that
@@ -84,6 +84,11 @@ no API keys, no logs, and no private data**.
   hand-offs; public views/comments monitoring; ntfy/webhook alerts; a
   confirmation-gated call hand-off; and Steam/Epic library/update scans with
   guarded install hand-offs.
+- **All-yes add-on (v2.4.2)** - real Twilio voice line (call me + inbound voice
+  commands with consent and local transcripts), real rembg background removal,
+  real add-to-cart attempt on a logged-in food site, official Instagram/YouTube
+  insights with your token, and a real `steam://install/<appid>` download trigger.
+  See `docs/PHONE_LINE.md` and `docs/ALL_YES_ADDON.md` for setup and limits.
 - Optional `jarvis_skills/` folder for your own Python skills.
 
 > Dictation latency depends on the microphone, phrase length, speech-recognition

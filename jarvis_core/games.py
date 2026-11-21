@@ -8,6 +8,7 @@ import re
 import shutil
 import time
 import urllib.parse
+import urllib.request
 
 from . import core
 
@@ -150,6 +151,41 @@ def _open_uri(uri: str) -> bool:
     return False
 
 
+def _steam_store_search(query: str) -> dict:
+    """Public Steam storesearch lookup via urllib (no private API, no key)."""
+    url = "https://store.steampowered.com/api/storesearch/?" + urllib.parse.urlencode(
+        {"term": query, "l": "english", "cc": "US"})
+    request = urllib.request.Request(url, headers={"User-Agent": "Jarvis/2.4"})
+    with urllib.request.urlopen(request, timeout=20) as response:
+        payload = json.loads(response.read().decode("utf-8", "replace"))
+    items = payload.get("items") or []
+    first = items[0] if items and isinstance(items[0], dict) else {}
+    return {"appid": str(first.get("id") or ""), "name": str(first.get("name") or "")}
+
+
+def _steam_client_path() -> str:
+    candidates = []
+    for name in ("steam.exe", "steam"):
+        found = shutil.which(name)
+        if found:
+            candidates.append(found)
+    root = _steam_root()
+    if root:
+        candidates.append(os.path.join(root, "steam.exe"))
+    for raw in (r"%ProgramFiles(x86)%\Steam\steam.exe", r"%ProgramFiles%\Steam\steam.exe"):
+        expanded = os.path.expandvars(raw)
+        if expanded and "%" not in expanded:
+            candidates.append(expanded)
+    return next((p for p in candidates if p and os.path.isfile(p)), "")
+
+
+def _legendary_cfg() -> dict:
+    raw = core.config_get("legendary_cli", {}) or {}
+    cfg = dict(raw) if isinstance(raw, dict) else {}
+    cfg["token"] = core.unprotect_secret(str(cfg.get("token") or ""))
+    return cfg
+
+
 def _library_text() -> str:
     libraries = steam_libraries()
     if not libraries:
@@ -160,7 +196,8 @@ def _library_text() -> str:
 
 
 def game_operation(action: str = "status", query: str = "", appid: str = "",
-                   platform: str = "steam", confirmed: bool = False) -> str:
+                   platform: str = "steam", confirmed: bool = False,
+                   token: str = "") -> str:
     """Inspect Steam/Epic libraries and safely launch installs or updates.
 
     action:
@@ -169,14 +206,23 @@ def game_operation(action: str = "status", query: str = "", appid: str = "",
       updates          - Steam manifests needing downloads + Epic local versions
       search           - find a Steam store app id
       install          - open Steam's real install dialog (confirmation required)
+      download         - resolve appid via storesearch and launch steam://install
       update           - open Steam Downloads or Epic Library (confirmation required)
+      configure_legendary - save a protected legendary CLI token (optional)
 
     Download completion and selected drive are reported only from real client
     state. Jarvis recommends the library with most free space; Steam owns the
-    final install dialog and download.
+    final install dialog and download. No silent install is ever performed.
     """
     a = (action or "status").strip().lower()
     plat = (platform or "steam").strip().lower()
+    if a == "configure_legendary":
+        if not token.strip():
+            return "Legendary CLI ka protected token do."
+        cfg = _legendary_cfg()
+        cfg["token"] = core.protect_secret(token.strip(), "jarvis-legendary-cli")
+        core.save_config({"legendary_cli": cfg})
+        return "Legendary CLI token locally protected ho gaya. Koi install nahi chalaya."
     if a in ("status", "libraries", "storage"):
         return _library_text() + f"\nInstalled: {len(steam_games())} Steam, {len(epic_games())} Epic."
     if a in ("list", "installed"):
@@ -203,7 +249,50 @@ def game_operation(action: str = "status", query: str = "", appid: str = "",
         return ("Steam results:\n" + "\n".join(
             f"- {r['appid']}: {r['name']}" + (f" — ${r['price']:.2f}" if r["price"] else "") for r in rows)) \
             if rows else f"No Steam result for '{query}'."
-    if a in ("install", "download"):
+    if a == "download":
+        if plat in ("epic", "legendary"):
+            cfg = _legendary_cfg()
+            if not cfg.get("token"):
+                return ("Epic download handoff: legendary CLI token configured nahi hai. "
+                        "Epic Games Launcher kholo aur wahan se install karo; main silent install nahi karta.")
+            msg = core.guard("game_operation:download", confirmed,
+                             f"Prepare a legendary CLI install command for '{query or appid}'.")
+            if msg:
+                return msg
+            exe = str(cfg.get("exe") or "legendary").strip() or "legendary"
+            command = [exe, "install", str(appid or query or "").strip()]
+            line = "Legendary install command prepared (NOT executed): " + " ".join(command)
+            core.audit("game_operation", f"epic download {command}", "command prepared", risk="high")
+            return line + " Jarvis ne silent install nahi kiya; is command ko terminal mein chalao."
+        name = (query or "").strip()
+        wanted = re.sub(r"\D", "", str(appid or "").strip())
+        label = name or (f"app {wanted}" if wanted else "")
+        if not wanted:
+            if not name:
+                return "Download ke liye game ka naam ya Steam appid do."
+            try:
+                result = _steam_store_search(name)
+            except Exception as e:
+                return f"Steam storesearch failed: {core.truncate(e, 240)}. Koi install request nahi bheja."
+            wanted, label = result.get("appid", ""), result.get("name") or name
+        if not wanted:
+            return f"Steam store me '{name}' nahi mila. Koi install request nahi bheja."
+        if not _steam_client_path():
+            return "Steam installed nahi. steam://install URI nahi bheja; pehle Steam client install karo."
+        msg = core.guard("game_operation:download", confirmed,
+                         f"Send steam://install/{wanted} to the real Steam client for '{label}'.")
+        if msg:
+            return msg
+        uri = "steam://install/" + wanted
+        opened = core.open_url(uri)
+        ok = "opened" in str(opened).lower() and not str(opened).lower().startswith("could not")
+        if not ok:
+            return (f"Steam install URI launch failed: {core.truncate(opened, 240)}. "
+                    "Koi download start nahi hua.")
+        core.audit("game_operation", f"download appid={wanted}", "URI launched", risk="high")
+        return (f"install request bheja; Steam client download karega. {label} (appid {wanted}). "
+                "Completion aur drive selection Steam client hi batayega; yahan install complete nahi claim kiya.")
+    if a == "install":
         msg = core.guard("game_operation:install", confirmed,
                          f"Open the real Steam install dialog for '{query or appid}'.")
         if msg:
@@ -237,4 +326,5 @@ def game_operation(action: str = "status", query: str = "", appid: str = "",
             ok = not str(opened).lower().startswith("could not")
         return (f"Opened {plat} updates. The client will report real progress."
                 if ok else f"Could not open {plat} updates.")
-    return "Game actions: status, libraries, list, updates, search, install, update."
+    return ("Game actions: status, libraries, list, updates, search, install, download, "
+            "update, configure_legendary.")

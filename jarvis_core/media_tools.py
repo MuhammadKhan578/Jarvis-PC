@@ -517,6 +517,66 @@ def image_operation(action: str = "info", path: str = "", destination: str = "",
             f"({core.human_bytes(os.path.getsize(output))}).")
 
 
+def remove_background(action: str = "remove", path: str = "", destination: str = "",
+                      confirmed: bool = False) -> str:
+    """Remove an image background with the real ``rembg`` package.
+
+    action:
+      remove/remove_background - create a new PNG with a transparent background
+
+    This is an honest adapter, not a simulation: without ``rembg`` installed it
+    says so plainly and does not write a file. With ``rembg`` it reads the real
+    source through ``core.resolve_path``, keeps the RGBA alpha channel and writes
+    a separate PNG. The source is never overwritten; an existing destination
+    needs explicit confirmation. Nothing is installed at runtime.
+    """
+    a = (action or "remove").strip().lower()
+    if a not in ("remove", "remove_background", "background", "bg", "cutout"):
+        return "remove_background actions: remove (create a new transparent PNG)."
+    try:
+        from rembg import remove as rembg_remove  # type: ignore
+    except Exception:
+        return "background removal ke liye rembg install karna hoga"
+    source = _image_source(path)
+    if not source and not str(path or "").strip():
+        source = _image_source(_recent_media("image"))
+    if not source:
+        return f"Image file not found or unsupported: {core.resolve_path(path)}"
+    pil = _pil()
+    if pil is None:
+        return "Pillow is not installed; install requirements.txt to edit images."
+    Image, _ImageDraw, _ImageEnhance, _ImageFilter, _ImageFont, ImageOps = pil
+    if destination:
+        output = core.resolve_path(destination)
+    else:
+        stem, _ext = os.path.splitext(source)
+        output = stem + "_nobg.png"
+    if os.path.splitext(output)[1].lower() != ".png":
+        output = os.path.splitext(output)[0] + ".png"
+    if os.path.abspath(output).lower() == os.path.abspath(source).lower():
+        return "Refusing to overwrite the source image. Choose a different destination."
+    if os.path.exists(output):
+        msg = core.guard("remove_background:overwrite", confirmed,
+                         f"Overwrite existing background-removed PNG '{output}'.")
+        if msg:
+            return msg
+    os.makedirs(os.path.dirname(output) or ".", exist_ok=True)
+    try:
+        with Image.open(source) as original:
+            image = ImageOps.exif_transpose(original).convert("RGBA")
+        result = rembg_remove(image)
+        if isinstance(result, bytes):
+            result = Image.open(io.BytesIO(result))
+        result = result.convert("RGBA")  # keep the alpha rembg produced
+        result.save(output, format="PNG")
+    except Exception as e:
+        return f"Background removal failed: {e}"
+    size = os.path.getsize(output)
+    core.audit("remove_background", f"{source}", output)
+    return (f"Background removed with rembg. New transparent PNG: {output} "
+            f"({core.human_bytes(size)}). Alpha preserved; source unchanged.")
+
+
 def _factor(value) -> float:
     try:
         return max(0.0, min(5.0, float(value if value not in (None, "") else 1.0)))

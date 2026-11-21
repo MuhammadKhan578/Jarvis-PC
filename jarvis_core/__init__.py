@@ -22,8 +22,8 @@ import typing
 
 from . import (agent, brain, calendar_tools, core, diagnostics, dictation,
                documents, games, hud, integrations, mail, mcp, media_tools,
-               memory, persona, privacy, research, resume, showcase, tools,
-               voice, workspace)
+               memory, persona, phone_line, privacy, research, resume, showcase,
+               tools, voice, workspace)
 
 __version__ = "3.3"
 
@@ -110,7 +110,17 @@ NEW TOOLS
 - phone_agent_operation(...) — ADB dial hand-off or a real configured telephony-agent API;
   outbound calls require confirmation and transcript/status comes from the provider.
 - game_operation(...) — Steam/Epic libraries, disk space, local update scan, Steam store
-  lookup and confirmation-gated install/update dialogs.
+  lookup, confirmation-gated install/update dialogs and action="download" to trigger a
+  real steam://install/<appid> hand-off (never a silent install).
+- phone_line_operation(...) / phone_line_call(...) / phone_line_webhook(...) — a real
+  Twilio voice line: inbound speech commands over the phone, outbound "call me", consent
+  before recording, and local transcript logs. Needs locally configured Twilio credentials.
+- remove_background(...) — real rembg-based background removal into a new PNG; reports
+  honestly if rembg is not installed. Never overwrites the original.
+- commerce_operation(action="cart_add", item=...) — real Edge DevTools add-to-cart attempt
+  on a logged-in food site. The final order/payment always stays with the user.
+- analytics_operation(action="insights", platform=...) — official Instagram Graph / YouTube
+  Data API metrics with a locally protected token; never scrapes private pages or invents data.
 
 HOW TO USE THEM
 1. Prefer ONE strong tool over many small steps. For example, for "make me a report on X and a Word
@@ -832,6 +842,67 @@ def command_hook(user_input: str, g: dict | None = None) -> bool:
     if (words & {"edit", "enhance", "resize", "crop", "clean"} and
             words & {"photo", "picture", "image", "pic"}):
         text = media_tools.image_operation(action="enhance")
+        core.say_lang(text, text, text)
+        return True
+
+    # real Twilio phone line ---------------------------------------------
+    if low in ("phone line status", "phone line haal", "jarvis line status") or (
+            "phone line" in low and words & {"status", "haal"}):
+        text = phone_line.phone_line_operation("status")
+        core.say_lang(text, text, text)
+        return True
+    if low in ("phone line start", "phone line on", "phone line chalao") or (
+            "phone line" in low and words & {"start", "chalao"}):
+        text = phone_line.phone_line_operation("start")
+        core.say_lang(text, text, text)
+        return True
+    if low in ("phone line stop", "phone line off", "phone line band") or (
+            "phone line" in low and words & {"stop", "band"}):
+        text = phone_line.phone_line_operation("stop")
+        core.say_lang(text, text, text)
+        return True
+    if low in ("jarvis line setup", "setup jarvis line", "jarvis phone line setup") or (
+            "jarvis line" in low and words & {"setup", "configure", "docs"}):
+        text = phone_line.open_docs()
+        core.say_lang(text, text, text)
+        return True
+    m = re.match(r"^(?:please\s+)?(confirm\s+)?call\s+me\b[\s:,-]*(.*)$", user_input, re.I)
+    if m:
+        message = re.sub(r"^with\s+", "", m.group(2).strip(" ,:-"), flags=re.I) or \
+            "Jarvis is calling you as requested."
+        number = phone_line.callback_number()
+        if not number:
+            text = ("No callback number is configured. Set it with "
+                    "phone line operation configure, to_number.")
+        else:
+            text = phone_line.phone_line_call(
+                to_number=number, message=message, confirmed=bool(m.group(1)))
+        core.say_lang(text, text, text)
+        return True
+
+    # real background removal / official insights / cart / game download --
+    if (words & {"background", "bg"} and
+            words & {"remove", "removal", "hatao", "hatana", "clear"}):
+        text = media_tools.remove_background()
+        core.say_lang(text, text, text)
+        return True
+    if "insights" in words or ("analytics" in words and words & {"check", "dekho", "status"}):
+        text = showcase.analytics_operation("insights")
+        core.say_lang(text, text, text)
+        return True
+    m = re.match(r"^(?:please\s+)?(?:add\s+)?(.+?)\s+(?:ko\s+)?cart\s+mein\s+daalo$",
+                 user_input, re.I)
+    if not m:
+        m = re.match(r"^(?:please\s+)?add\s+(.+?)\s+to\s+cart$", user_input, re.I)
+    if m:
+        text = showcase.commerce_operation("cart_add", item=m.group(1).strip())
+        core.say_lang(text, text, text)
+        return True
+    m = re.match(r"^(?:please\s+)?download\s+(.+?)(?:\s+game)?$", user_input, re.I)
+    if not m:
+        m = re.match(r"^(.+?)\s+download\s+karo$", user_input, re.I)
+    if m:
+        text = games.game_operation("download", query=m.group(1).strip())
         core.say_lang(text, text, text)
         return True
 

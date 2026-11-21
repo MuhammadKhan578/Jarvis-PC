@@ -9,7 +9,7 @@ import os
 import time
 
 from . import (calendar_tools, core, dictation, games, mcp, media_tools, news,
-               persona, privacy, showcase, smarthome, workspace)
+               persona, phone_line, privacy, showcase, smarthome, workspace)
 from .agent import mission_operation, schedule_operation, skill_operation
 from .brain import brain_operation
 from .browser import browser_operation
@@ -207,11 +207,15 @@ TOOL_FUNCTIONS = [
     showcase.iss_operation,
     media_tools.video_operation,
     media_tools.image_operation,
+    media_tools.remove_background,
     showcase.visual_guide,
     showcase.commerce_operation,
     showcase.analytics_operation,
     showcase.notification_operation,
     showcase.phone_agent_operation,
+    phone_line.phone_line_operation,
+    phone_line.phone_line_call,
+    phone_line.phone_line_webhook,
     games.game_operation,
     hud_operation,
     config_operation,

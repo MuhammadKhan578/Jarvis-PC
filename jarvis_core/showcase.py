@@ -19,7 +19,7 @@ import time
 import urllib.parse
 from pathlib import Path
 
-from . import core
+from . import browser, core
 
 try:
     import requests
@@ -229,11 +229,97 @@ def _shopping() -> list[dict]:
     return data if isinstance(data, list) else []
 
 
+_CART_SITES = {
+    "swiggy": "https://www.swiggy.com",
+    "swiggy.in": "https://www.swiggy.com",
+    "zomato": "https://www.zomato.com",
+}
+_CART_CHECKOUT = {
+    "https://www.swiggy.com": "https://www.swiggy.com/checkout",
+    "https://www.zomato.com": "https://www.zomato.com/cart",
+}
+_LOGIN_MARKERS = re.compile(r"\b(?:log\s*in|sign\s*in|login|signin|captcha|verify\s+(?:your\s+)?account)\b", re.I)
+
+
+def _cart_log(steps: list[str], label: str, detail: str) -> None:
+    line = f"{label}: {core.truncate(detail, 260)}"
+    steps.append(line)
+    core.log("commerce cart_add | " + line)
+
+
+def _cart_add(site: str, item: str, confirmed: bool, steps: list[str]) -> str:
+    """Drive the real Edge DevTools browser to attempt an add-to-cart.
+
+    Every step is logged. The final order/payment always stays with the user;
+    the checkout tab opens only after explicit confirmation. No purchase,
+    order id or payment result is ever claimed here.
+    """
+    item = (item or "").strip()
+    if not item:
+        return "needs_user_action: Cart me kya daalun? Item ka naam batao. Koi order/payment nahi kiya."
+    _cart_log(steps, "target", f"site={site} item={item}")
+    # browser_operation is the existing DevTools path; text="edge" asks for the
+    # installed Edge at C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe
+    try:
+        opened = browser.browser_operation("open", url=site, text="edge")
+    except Exception as e:
+        opened = f"Browser automation unavailable: {e}"
+    _cart_log(steps, "open_edge", opened)
+    if any(x in opened.lower() for x in ("could not", "did not", "not the requested", "unavailable", "close ")):
+        return ("needs_user_action: Edge DevTools automation available nahi hai — " + opened +
+                " Mainne item cart me nahi daala; order/payment nahi kiya.")
+    body = browser.browser_operation("read")
+    _cart_log(steps, "page_read", body[:500])
+    if _LOGIN_MARKERS.search(body or ""):
+        return ("needs_user_action: login required — Edge profile me is site par sign in karo, "
+                "phir dobara try karo. Cart/order/payment nahi kiya.")
+    typed = browser.browser_operation("type", text=item, submit=True)
+    _cart_log(steps, "search_type", typed)
+    if "not_found" in typed.lower() or "failed" in typed.lower():
+        return ("needs_user_action: Search box nahi mila — " + typed +
+                " Cart/order/payment nahi kiya.")
+    browser.browser_operation("wait", text="2")
+    found = browser.browser_operation("find", text=item)
+    _cart_log(steps, "find_item", found)
+    if found.lower().startswith(("no elements", "find failed")):
+        return (f"needs_user_action: '{item}' search results me nahi mila. "
+                "Cart/order/payment nahi kiya.")
+    clicked = ""
+    for label in ("ADD TO CART", "Add to cart", "Add", "ADD"):
+        clicked = browser.browser_operation("click", text=label)
+        _cart_log(steps, "click_" + label.replace(" ", "_"), clicked)
+        if clicked.upper().startswith("CLICKED"):
+            break
+    else:
+        return ("needs_user_action: Add-to-cart button click nahi ho paya. "
+                "Cart/order/payment nahi kiya.")
+    cart_text = browser.browser_operation("read")
+    _cart_log(steps, "cart_read", cart_text[:500])
+    verified = bool(re.search(r"\b(?:cart|basket|bag)\b", cart_text or "", re.I))
+    note = ("Item add karne ka UI step chal gaya" if verified else
+            "Add-to-cart click gaya, par site ne cart confirmation nahi dikhaya")
+    checkout = _CART_CHECKOUT.get(site, site.rstrip("/") + "/checkout")
+    if confirmed:
+        chk = browser.browser_operation("open", url=checkout, text="edge")
+        _cart_log(steps, "open_checkout", chk)
+    else:
+        msg = core.guard("commerce_operation:cart_checkout", False,
+                         f"Open {checkout} to review the cart.")
+        _cart_log(steps, "checkout_guard", msg)
+    core.audit("commerce_operation", f"cart_add site={site} item={item}",
+               "needs_user_action; no order/payment", risk="high")
+    return ("needs_user_action: " + note + ". Final order aur payment AAP karein — "
+            "maine order nahi diya aur payment nahi kiya. Cart review ke liye checkout tab "
+            "kholne ke liye confirmed=true do. Steps:\n- " + "\n- ".join(steps))
+
+
 def commerce_operation(action: str = "search", query: str = "", service: str = "foodpanda",
-                       item: str = "", quantity: int = 1, confirmed: bool = False) -> str:
+                       item: str = "", quantity: int = 1, confirmed: bool = False,
+                       url: str = "") -> str:
     """Food/grocery search, local shopping list and guarded checkout hand-off.
 
     action: search/open_food/open_grocery, add/list/remove shopping-list items,
+    cart_add (real Edge DevTools add-to-cart attempt; user finishes order/payment),
     checkout/order (opens the service after explicit confirmation; the website
     must confirm the cart/payment—Jarvis never invents an order).
     """
@@ -260,6 +346,12 @@ def commerce_operation(action: str = "search", query: str = "", service: str = "
         core.write_json(SHOPPING_FILE, kept)
         return f"Removed {len(rows)-len(kept)} shopping-list item(s)."
     svc = (service or "foodpanda").strip().lower().replace(" ", "")
+    if a in ("cart_add", "add_to_cart"):
+        site = str(url or "").strip()
+        if site and not re.match(r"^https?://", site, re.I):
+            site = "https://" + site
+        site = site or _CART_SITES.get(svc, "https://www.swiggy.com")
+        return _cart_add(site, (item or query).strip(), confirmed, [])
     template = _COMMERCE.get(svc)
     if not template:
         return "Supported services: " + ", ".join(sorted(_COMMERCE)) + "."
@@ -399,14 +491,143 @@ def _monitor_id(url: str) -> str:
     return hashlib.sha1(url.encode("utf-8")).hexdigest()[:10]
 
 
+# Official API adapters only. Nothing here scrapes a private or logged-in page.
+_INSIGHTS_CFG = {
+    "instagram": "instagram_graph", "ig": "instagram_graph",
+    "youtube": "youtube_data", "yt": "youtube_data",
+}
+
+
+def _insights_cfg(platform: str) -> tuple[dict, str]:
+    key = _INSIGHTS_CFG.get((platform or "").strip().lower(), "")
+    raw = core.config_get(key, {}) if key else {}
+    cfg = dict(raw) if isinstance(raw, dict) else {}
+    cfg["token"] = core.unprotect_secret(str(cfg.get("token") or ""))
+    return cfg, key
+
+
+def _official_get(url: str, headers: dict | None = None) -> tuple[int, object]:
+    """Real GET to an official API via requests, with a urllib fallback."""
+    if requests is not None:
+        return _http_json("GET", url, headers=headers, timeout=25)[:2]
+    import urllib.request
+    request = urllib.request.Request(url, headers=headers or {}, method="GET")
+    with urllib.request.urlopen(request, timeout=25) as response:
+        payload = json.loads(response.read().decode("utf-8", "replace"))
+        return int(response.status), payload
+
+
+def _youtube_video_id(value: str) -> str:
+    text = (value or "").strip()
+    if re.fullmatch(r"[A-Za-z0-9_-]{11}", text):
+        return text
+    match = re.search(r"(?:[?&]v=|youtu\.be/|/embed/|/shorts/)([A-Za-z0-9_-]{11})", text)
+    return match.group(1) if match else ""
+
+
+def _instagram_insights(cfg: dict, account_id: str) -> str:
+    token = str(cfg.get("token") or "").strip()
+    if not token:
+        return ("token chahiye / login required: Instagram Graph API access token nahi mila. "
+                "analytics_operation('configure_insights', platform='instagram', token='...') se "
+                "protected token save karo. Koi koi number nahi bataya ja raha.")
+    account_id = (account_id or str(cfg.get("account_id") or "")).strip()
+    if not account_id:
+        return "Instagram Graph insights ke liye account_id (IG user id) do. Token save hai."
+    version = str(cfg.get("version") or "v19.0").strip() or "v19.0"
+    url = (f"https://graph.facebook.com/{urllib.parse.quote(version, safe='.')}/"
+           f"{urllib.parse.quote(account_id, safe='')}/insights")
+    params = urllib.parse.urlencode({
+        "metric": "impressions,reach,engagement", "period": "day", "access_token": token})
+    try:
+        status, payload = _official_get(url + "?" + params)
+    except Exception as e:
+        return f"Instagram Graph API call failed: {core.truncate(e, 240)}. Koi koi number nahi bataya ja raha."
+    if status != 200 or not isinstance(payload, dict) or "error" in payload:
+        return (f"Instagram Graph API error (HTTP {status}): {core.truncate(payload, 300)}. "
+                "Koi koi number nahi bataya ja raha.")
+    metrics = {}
+    for row in (payload.get("data") or []):
+        name = str((row or {}).get("name") or "")
+        points = (row or {}).get("values") or []
+        value = points[-1].get("value") if points and isinstance(points[-1], dict) else None
+        if name and isinstance(value, (int, float)):
+            metrics[name] = value
+    if not metrics:
+        return "Instagram Graph API ne koi metric nahi diya. Koi koi number nahi bataya ja raha."
+    line = "Instagram Graph API (official): " + ", ".join(
+        f"{k.replace('_', ' ')} {v:,}" for k, v in metrics.items())
+    core.audit("analytics_operation", "insights instagram", line, risk="normal")
+    return line
+
+
+def _youtube_insights(cfg: dict, video_id: str, video_url: str) -> str:
+    api_key = str(cfg.get("token") or "").strip()
+    if not api_key:
+        return ("token chahiye / login required: YouTube Data API key/token nahi mila. "
+                "analytics_operation('configure_insights', platform='youtube', token='...') se "
+                "protected token save karo. Koi koi number nahi bataya ja raha.")
+    video_id = _youtube_video_id(video_id or video_url)
+    if not video_id:
+        return "YouTube insights ke liye video id ya watch URL do. Token save hai."
+    url = "https://www.googleapis.com/youtube/v3/videos?" + urllib.parse.urlencode(
+        {"part": "statistics", "id": video_id, "key": api_key})
+    try:
+        status, payload = _official_get(url)
+    except Exception as e:
+        return f"YouTube Data API call failed: {core.truncate(e, 240)}. Koi koi number nahi bataya ja raha."
+    if status != 200 or not isinstance(payload, dict) or "error" in payload:
+        return (f"YouTube Data API error (HTTP {status}): {core.truncate(payload, 300)}. "
+                "Koi koi number nahi bataya ja raha.")
+    items = payload.get("items") or []
+    stats = (items[0].get("statistics") or {}) if items and isinstance(items[0], dict) else {}
+    metrics = {}
+    for key in ("viewCount", "likeCount", "commentCount", "favoriteCount"):
+        value = stats.get(key)
+        if str(value).isdigit():
+            metrics[key] = int(value)
+    if not metrics:
+        return f"YouTube Data API ne video {video_id} ke liye statistics nahi diya. Koi koi number nahi bataya ja raha."
+    line = f"YouTube Data API (official) video {video_id}: " + ", ".join(
+        f"{k} {v:,}" for k, v in metrics.items())
+    core.audit("analytics_operation", "insights youtube", line, risk="normal")
+    return line
+
+
 def analytics_operation(action: str = "check", url: str = "", monitor_id: str = "",
-                        threshold: int = 0, notify: bool = False, confirmed: bool = False) -> str:
+                        threshold: int = 0, notify: bool = False, confirmed: bool = False,
+                        platform: str = "", token: str = "", account_id: str = "",
+                        video_id: str = "") -> str:
     """Check/monitor public Instagram or YouTube views, likes and comments.
 
     action: check, add/monitor, list, remove, check_all. Official/private account
     metrics still need the platform's API token; public-page metrics are best effort.
+    insights/configure_insights use only official Instagram Graph / YouTube Data
+    APIs with locally protected tokens—no private-page scraping, no invented data.
     """
     a = (action or "check").strip().lower()
+    if a in ("configure_insights", "insights_configure"):
+        cfg, key = _insights_cfg(platform)
+        if not key:
+            return "insights configure ke liye platform='instagram' ya 'youtube' do."
+        if not token.strip():
+            return "Token do; main use DPAPI se locally protect karke save karunga."
+        cfg["token"] = core.protect_secret(token.strip(), f"jarvis-{key}")
+        if account_id:
+            cfg["account_id"] = account_id.strip()
+        core.save_config({key: cfg})
+        return f"{key} token locally protected ho gaya. Koi API call nahi kiya."
+    if a == "insights":
+        plat = (platform or "").strip().lower()
+        if not plat:
+            plat = "youtube" if "youtu" in (url or "").lower() else (
+                "instagram" if "instagram" in (url or "").lower() else "")
+        if plat not in _INSIGHTS_CFG:
+            return "insights ke liye platform='instagram' ya 'youtube' do."
+        cfg, _key = _insights_cfg(plat)
+        if plat in ("instagram", "ig"):
+            return _instagram_insights(cfg, account_id)
+        return _youtube_insights(cfg, video_id, url)
     monitors = _monitors()
     if a in ("list", "status"):
         if not monitors:
