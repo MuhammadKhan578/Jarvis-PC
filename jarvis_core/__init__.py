@@ -20,9 +20,12 @@ import threading
 import time
 import typing
 
-from . import agent, brain, calendar_tools, core, diagnostics, dictation, documents, hud, integrations, mail, mcp, memory, persona, privacy, research, resume, tools, voice, workspace
+from . import (agent, brain, calendar_tools, core, diagnostics, dictation,
+               documents, games, hud, integrations, mail, mcp, media_tools,
+               memory, persona, privacy, research, resume, showcase, tools,
+               voice, workspace)
 
-__version__ = "3.2"
+__version__ = "3.3"
 
 PROMPT_ADDENDUM = r"""
 ## ULTIMATE CAPABILITIES (added by jarvis_core)
@@ -91,6 +94,23 @@ NEW TOOLS
 - privacy_operation(action="status"|"open_settings"|"set"|"data_locations"|"clear_history", ...) —
   explain Windows permissions and network use, show all local data, disable learning/archive,
   or clear local conversation history after confirmation.
+- iss_operation(action="status"|"track"|"web") — real-time International Space Station
+  coordinates and a live Jarvis HUD tracker; no API key.
+- video_operation(action="analyze"|"trim"|"cut"|"auto_cut"|"info", path=...) —
+  understand a local video or create deterministic FFmpeg edits without overwriting the source.
+- image_operation(action="analyze"|"resize"|"crop"|"rotate"|"flip"|"enhance"|"grayscale"|"sepia"|"blur"|"text", path=...) —
+  understand or edit a local photo. All edits create a separate output file.
+- visual_guide(target=...) — find a visible UI element and draw a temporary purple/cyan
+  highlight and instruction over it, without clicking.
+- commerce_operation(...) — food/grocery search and a local shopping list. Checkout/order
+  hand-off always requires confirmation and success must come from the real website.
+- analytics_operation(...) — check and monitor public Instagram/YouTube views, likes and
+  comments; approved monitors can send a remote alert when metrics change.
+- notification_operation(...) — proactive PC/mobile alerts through a configured ntfy server.
+- phone_agent_operation(...) — ADB dial hand-off or a real configured telephony-agent API;
+  outbound calls require confirmation and transcript/status comes from the provider.
+- game_operation(...) — Steam/Epic libraries, disk space, local update scan, Steam store
+  lookup and confirmation-gated install/update dialogs.
 
 HOW TO USE THEM
 1. Prefer ONE strong tool over many small steps. For example, for "make me a report on X and a Word
@@ -795,6 +815,14 @@ def command_hook(user_input: str, g: dict | None = None) -> bool:
                 "یاد رکھ لی، سر۔ وہ بات اب میری مستقل میموری کا حصہ ہے۔")
             return True
 
+    # live ISS tracking ---------------------------------------------------
+    if ("international space station" in low or "iss" in words) and words & {
+            "track", "tracker", "location", "where", "kahan", "kidhar", "dikhao", "show", "open"}:
+        open_tracker = bool(words & {"track", "tracker", "dikhao", "show", "open"})
+        text = showcase.iss_operation("track" if open_tracker else "status")
+        core.say_lang(text, text, text)
+        return True
+
     # permanent memory: recall ------------------------------------------
     recall_q = ""
     m = re.match(r"^(?:what\s+do\s+you\s+remember(?:\s+about)?|do\s+you\s+remember(?:\s+about)?)"
@@ -1058,6 +1086,7 @@ __all__ = [
     "TOOLS", "__version__", "core", "memory", "research", "documents", "agent", "hud",
     "integrations", "diagnostics", "tools", "brain", "voice", "mail", "resume",
     "calendar_tools", "dictation", "workspace", "mcp", "persona", "privacy",
+    "showcase", "media_tools", "games",
 ]
 
 TOOLS = tools.TOOL_FUNCTIONS

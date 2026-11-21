@@ -76,6 +76,14 @@ no API keys, no logs, and no private data**.
 - **MCP connections for coding agents (v2.3.0)** - `jarvis-memory` now adds
   read-only connected-workspace queries and quick cited research, alongside
   memory, calendar and writing-style context.
+- **Reel feature pack (v2.4.0)** - live ISS position and a refreshable HUD map;
+  real FFmpeg video trim/cut/auto-cut and local video understanding; local photo
+  analysis and real photo edits (resize, crop, 9:16/1:1/16:9 presets, rotate,
+  flip, enhance, grayscale, sepia, blur and text); a temporary visual guide that
+  highlights a UI target without clicking; food/grocery lists and service
+  hand-offs; public views/comments monitoring; ntfy/webhook alerts; a
+  confirmation-gated call hand-off; and Steam/Epic library/update scans with
+  guarded install hand-offs.
 - Optional `jarvis_skills/` folder for your own Python skills.
 
 > Dictation latency depends on the microphone, phrase length, speech-recognition
@@ -201,6 +209,9 @@ block the rest of the assistant.
 | `jarvis_core/mcp.py` | `jarvis-memory` MCP server + HTTP MCP client |
 | `jarvis_core/persona.py` | Personality and writing-voice learning |
 | `jarvis_core/privacy.py` | Privacy status, Windows permission links and local data controls |
+| `jarvis_core/media_tools.py` | Real video/photo analysis and deterministic local edits |
+| `jarvis_core/showcase.py` | ISS, visual guide, commerce, analytics, alerts and phone hand-off |
+| `jarvis_core/games.py` | Steam/Epic library, update scan and guarded install hand-off |
 | `jarvis_mcp_server.py` | stdio entrypoint for other MCP agents |
 | `jarvis_skills/` | Optional user skills |
 | `Jarvis.bat` | Launches the HUD |
@@ -215,6 +226,9 @@ Runtime data is created on your PC, never in the repository:
 - `jarvis_companion.json` — optional companion topics
 - `jarvis_data/smarthome.json` — smart-home device states
 - `jarvis_data/smarthome_config.json` — optional Home Assistant URL/token
+- `jarvis_data/shopping_list.json` — local grocery list
+- `jarvis_data/social_monitors.json` — public metrics you asked Jarvis to watch
+- `Jarvis_Reports/ISS_Live_Tracker.html` — refreshable live ISS map
 - `jarvis_data/`, `Jarvis_Documents/`, `Jarvis_Reports/` — logs and files
 
 These paths are listed in `.gitignore`.
@@ -224,8 +238,8 @@ These paths are listed in `.gitignore`.
 ## Privacy
 
 - Your Gemini key lives in `%APPDATA%\Jarvis\config.json`.
-- On Windows, saved Gemini/work/MCP/Home Assistant credentials are protected
-  with the current user's DPAPI key.
+- On Windows, saved Gemini/work/MCP/Home Assistant/ntfy/phone-provider credentials
+  are protected with the current user's DPAPI key.
 - Memory and settings live in local files next to the app. You can disable
   automatic learning or the verbatim archive from `privacy_operation`.
 - Smart-home state and an optional protected Home Assistant token stay on your PC.
@@ -255,6 +269,21 @@ See [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md). Common fixes:
 
 ---
 
+## Testing
+
+```powershell
+python -m compileall -q -f .
+python -m unittest discover -s tests -p "test_*.py" -v
+python -m pip check
+```
+
+Live third-party writes (orders, payments, calls, social posts) are not performed
+by the test suite. Those paths use mocked official responses plus real
+confirmation-guard tests; local media edits, UI checks, STT/TTS and non-writing
+network reads are exercised directly.
+
+---
+
 ## Notes
 
 - A Gemini API key is required. Google may offer a free tier; check your
@@ -263,6 +292,12 @@ See [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md). Common fixes:
   picked up after the PC wakes or Jarvis starts again.
 - Browser control is experimental. Read-only navigation runs directly; sending,
   deleting, purchasing, account changes and similar actions require review.
+- Reel features use real endpoints and local tools where possible. ISS comes from
+  the public Open Notify API; ntfy needs a topic you control; social metrics are
+  best-effort public-page checks; Steam/ADB actions open the real client/dialer
+  after confirmation. Jarvis never claims a purchase, call or installation that
+  the provider did not confirm. Video FFmpeg is provided by `imageio-ffmpeg` from
+  `requirements.txt`; a system FFmpeg installation is optional.
 - Windows controls microphone access in **Settings > Privacy & security >
   Microphone**. Unlike macOS, Windows has no separate desktop screen-recording,
   accessibility or local-calendar permission prompt; Jarvis reports this

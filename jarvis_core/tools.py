@@ -8,7 +8,8 @@ from __future__ import annotations
 import os
 import time
 
-from . import calendar_tools, core, dictation, mcp, news, persona, privacy, smarthome, workspace
+from . import (calendar_tools, core, dictation, games, mcp, media_tools, news,
+               persona, privacy, showcase, smarthome, workspace)
 from .agent import mission_operation, schedule_operation, skill_operation
 from .brain import brain_operation
 from .browser import browser_operation
@@ -137,7 +138,9 @@ def ultimate_status() -> str:
         f"- Capabilities: research, missions, files, documents, browser, UI automation, "
         "system/network control, email, calendar, dictation, work apps (GitHub/Slack/Notion/"
         "Linear/Jira), MCP server+client, personality and writing-voice learning, "
-        "translation, skills, diagnostics, scheduler, privacy controls, deep reasoning.\n"
+        "translation, skills, diagnostics, scheduler, privacy controls, deep reasoning, "
+        "live ISS tracking, video analysis/editing, photo analysis/editing, visual UI guidance, commerce hand-off, "
+        "social analytics, remote alerts, phone-agent integration and Steam/Epic management.\n"
         f"- Data folder: {core.DATA_DIR}\n"
         f"- Audit log: {core.AUDIT_FILE}"
     )
@@ -201,6 +204,15 @@ TOOL_FUNCTIONS = [
     mcp.mcp_operation,
     persona.persona_operation,
     privacy.privacy_operation,
+    showcase.iss_operation,
+    media_tools.video_operation,
+    media_tools.image_operation,
+    showcase.visual_guide,
+    showcase.commerce_operation,
+    showcase.analytics_operation,
+    showcase.notification_operation,
+    showcase.phone_agent_operation,
+    games.game_operation,
     hud_operation,
     config_operation,
     ultimate_status,

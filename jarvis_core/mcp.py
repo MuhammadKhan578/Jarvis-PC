@@ -1,4 +1,4 @@
-"""Model Context Protocol (MCP) support for Jarvis 2.3.
+"""Model Context Protocol (MCP) support for Jarvis 2.4.
 
 Two halves:
 
@@ -23,7 +23,7 @@ from . import core
 
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "jarvis-memory"
-SERVER_VERSION = "2.3.0"
+SERVER_VERSION = "2.4.0"
 
 # --------------------------------------------------------------------------- server
 _SERVER_TOOLS = [
@@ -313,7 +313,7 @@ def _post(url: str, token: str, message: dict, session: str = "",
         "Content-Type": "application/json",
         "Accept": "application/json, text/event-stream",
         "MCP-Protocol-Version": PROTOCOL_VERSION,
-        "User-Agent": "Jarvis-MCP-Client/2.3",
+        "User-Agent": "Jarvis-MCP-Client/2.4",
     }
     if token:
         headers["Authorization"] = "Bearer " + token

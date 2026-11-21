@@ -87,8 +87,38 @@ account only has access to newer names.
 - Jarvis uses its own persistent browser profile and debugging port. Close the
   existing automation browser once, then ask Jarvis to open it again.
 - If you explicitly request Brave/Chrome/Edge, that exact browser must be
-  installed; v2.3 does not silently substitute another browser.
+  installed; v2.4 does not silently substitute another browser.
 - CAPTCHA, sign-in challenges and redesigned pages may need manual review.
+
+## Video and photo edits (v2.4)
+
+- FFmpeg comes from the `imageio-ffmpeg` package in `requirements.txt`. Run
+  `python -m pip install -r requirements.txt` if an edit says FFmpeg is missing.
+  A system-wide FFmpeg install is optional.
+- Originals are never overwritten. Edits are saved as new files under
+  `Jarvis_Reports/`; an overwrite needs an explicit confirmation.
+- Large videos are trimmed with a stream copy (fast, no re-encode). Visual
+  questions sample a few frames; audio is not claimed as analysed. Ask about a
+  short clip for a more reliable answer.
+- If Gemini image/video analysis is unavailable, Jarvis says so and still
+  reports real file metadata from FFprobe/Pillow.
+
+## ISS, alerts and phone hand-off (v2.4)
+
+- Live ISS position uses the public `api.wheretheiss.at` service. A failure is
+  reported honestly; there is no fake cached position.
+- Alerts need a topic configured with *"configure ntfy topic ..."* and a
+  confirmation. Tokens are stored with Windows DPAPI; no token is bundled.
+- Phone dial hand-off needs an ADB device or a configured provider. Jarvis never
+  claims a call or transcript that the provider did not confirm.
+
+## Steam / Epic library (v2.4)
+
+- The scan reads the real Steam `libraryfolders.vdf` and Epic launcher metadata.
+  If those programs are not installed, the tool reports that instead of inventing
+  a library.
+- Install/update only opens the real client after confirmation; Jarvis does not
+  silently download games.
 
 ## Files and memory
 
@@ -96,10 +126,12 @@ Jarvis writes these next to the app:
 
 - `jarvis_memory.json`
 - `jarvis_data/memory_v2.json` and `jarvis_data/archive.jsonl`
-- `jarvis_data/calendar.json`, `schedule.json`, and `missions.json`
+- `jarvis_data/calendar.json`, `schedule.json`, `missions.json`,
+  `shopping_list.json`, and `social_monitors.json`
 - `jarvis_settings.json`
 - `jarvis_companion.json`
-- `jarvis_data/`, `Jarvis_Documents/`, `Jarvis_Reports/`
+- `jarvis_data/`, `Jarvis_Documents/`, `Jarvis_Reports/` (including
+  `Jarvis_Reports/ISS_Live_Tracker.html`)
 
 They are ignored by git. Prefer the Privacy/Memory controls over manually
 deleting files. The API key is separate, lives in `%APPDATA%\Jarvis\config.json`

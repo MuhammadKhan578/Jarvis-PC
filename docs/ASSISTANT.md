@@ -1,9 +1,9 @@
-# Jarvis assistant features (v2.3.0)
+# Jarvis assistant features (v2.4.0)
 
-This guide covers the assistant layer through **v2.3.0**: global dictation,
+This guide covers the assistant layer through **v2.4.0**: global dictation,
 personality and writing voice, email/calendar, routines, real browser/Windows
-automation, connected work tools, MCP and privacy controls. Runtime data stays
-on your PC unless you explicitly invoke a cloud model/service.
+automation, connected work tools, MCP, reel features and privacy controls.
+Runtime data stays on your PC unless you explicitly invoke a cloud model/service.
 
 ---
 
@@ -249,13 +249,92 @@ of falsely announcing full completion.
 
 ---
 
-## 9. Privacy
+## 9. Live ISS tracking
+
+Say *"where is the ISS"*, *"track the ISS"* or *"open the ISS map"*. Jarvis reads
+the public Open Notify endpoint, reports the real latitude/longitude/altitude and
+can open `Jarvis_Reports/ISS_Live_Tracker.html`, an HUD map that refreshes every
+five seconds. No API key is required. If the endpoint is offline, Jarvis says so.
+
+## 10. Local video understanding and real edits
+
+`video_operation` reads a local video with Gemini when a key is configured and
+creates real MP4 outputs with the bundled FFmpeg from `imageio-ffmpeg`:
+
+- `info` — duration, resolution and codec facts from FFprobe.
+- `analyze` / `summarize` — sampled frames plus a question; large videos are
+  sampled, and the report states that audio was not inspected.
+- `trim` — exact `start`/`end` seconds.
+- `cut` / `keep` — include or remove several `a-b` segments.
+- `auto_cut` — deterministic highlight-style segments without claiming creative
+  judgement.
+- `open` — open the resulting file.
+
+The source is never overwritten. An existing destination requires confirmation.
+Captions, transitions, speed ramps and audio replacement are not claimed.
+
+## 11. Local photo analysis and edits
+
+`image_operation` reads a local image with Gemini or creates a separate edited
+file with Pillow. Actions: `info`, `analyze`, `open`, `resize`, `crop`,
+`rotate`, `flip`, `enhance`, `grayscale`, `sepia`, `blur` and `text`.
+`preset="9:16"`, `"1:1"`, `"16:9"`, `"4:3"` or `"3:2"` performs a centre crop for
+social exports. Originals are never overwritten. Complex layers, masks,
+background removal and generative fill are not claimed.
+
+## 12. Visual guide
+
+`visual_guide(target="Export button")` asks the screen reader to locate an
+element and draws a temporary purple/cyan highlight plus a label over it. It
+never clicks, so it is safe to use as a teaching overlay.
+
+## 13. Food, groceries and commerce hand-off
+
+`commerce_operation` manages `jarvis_data/shopping_list.json` and opens real
+food/grocery search results. It can add, remove, list and clear items. `order`
+is confirmation-gated and opens the chosen service; Jarvis explicitly reports
+that no purchase or payment was made.
+
+## 14. Social analytics
+
+`analytics_operation` stores public profile/post URLs in
+`jarvis_data/social_monitors.json`, fetches public pages on request and reports
+views/likes/comments only when the page exposes them. Instagram/YouTube
+login-only insights are not scraped; Jarvis says that a login or official API is
+needed. Optional threshold alerts go through `notification_operation` after
+confirmation.
+
+## 15. Remote alerts
+
+`notification_operation(action="configure", server="https://ntfy.example",
+topic="...", token="...")` saves an ntfy-compatible topic/token. Saved tokens use
+the same Windows DPAPI protection as other credentials. Sending an alert always
+requires `confirmed=True`; the response reports the real provider result.
+
+## 16. Phone agent
+
+`phone_agent_operation` can prepare an ADB dial hand-off or a provider call
+through an endpoint you configure. Provider calls require confirmation. It never
+claims a call was answered or recorded. `call_status` and `transcript` report
+only what the configured provider actually returns.
+
+## 17. Steam and Epic libraries
+
+`game_operation` reads real Steam manifests and Epic launcher metadata, reports
+installed games and available update flags, and checks disk space before a
+hand-off. Installing or updating opens the real Steam/Epic client only after
+confirmation. It does not fabricate library contents or installation success.
+
+---
+
+## 18. Privacy
 
 - Dictation audio goes to the speech recogniser exactly like normal voice input.
 - Memory, calendar, persona and tokens live in local files:
   `jarvis_data/config.json`, `jarvis_data/calendar.json`,
   `jarvis_memory.json`.
-- Gemini/work/MCP/Home Assistant credentials use Windows DPAPI. Legacy plaintext
+- Gemini/work/MCP/Home Assistant/ntfy/phone-provider credentials use Windows
+  DPAPI. Legacy plaintext
   values are upgraded when read. They are **never** committed.
 - Use `privacy_operation(action="status")` or the **[ PRIVACY ]** Assistant Hub
   button to inspect network use and local data. `memory_enabled`, `auto_learn`

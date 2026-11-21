@@ -53,6 +53,17 @@ $env:JARVIS_CONFIG = "D:\MyJarvisConfig"
 python jarvis_app.py
 ```
 
+## Other features and keys
+
+- Photo and sampled-frame video understanding use the **same Gemini key** and a
+  vision-capable model. No second API key is needed.
+- ISS tracking, public page checks and the local ISS map need **no key**.
+- ntfy topics/tokens and phone-provider tokens are stored separately in the
+  Windows DPAPI credential store, not in this config file. You configure them
+  with a voice command; nothing is bundled or committed.
+- Login-only Instagram/YouTube insights and third-party purchases still require
+  your own account sign-in. Jarvis reports the limit rather than scraping it.
+
 ## Environment variables
 
 The key saved by the app always comes first. Environment variables are only a

@@ -30,7 +30,7 @@ _WRITE_ACTIONS = {"send", "create", "comment", "append", "update", "post"}
 def _http(method: str, url: str, headers: dict | None = None,
           payload: dict | None = None, timeout: int = 25) -> tuple[int, str, dict]:
     body = None
-    hdrs = {"User-Agent": "Jarvis/2.3 (+local assistant)", "Accept": "application/json"}
+    hdrs = {"User-Agent": "Jarvis/2.4 (+local assistant)", "Accept": "application/json"}
     hdrs.update(headers or {})
     if payload is not None:
         body = json.dumps(payload).encode("utf-8")
