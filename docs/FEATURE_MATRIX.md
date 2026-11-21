@@ -1,4 +1,4 @@
-# Jarvis PC v2.4.4 feature matrix
+# Jarvis PC v2.4.5 feature matrix
 
 This maps the public assistant checklist to concrete code and verification.
 “Implemented” does not mean a third-party account is magically available: live

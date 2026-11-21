@@ -23,7 +23,7 @@ from . import core
 
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "jarvis-memory"
-SERVER_VERSION = "2.4.4"
+SERVER_VERSION = "2.4.5"
 
 # --------------------------------------------------------------------------- server
 _SERVER_TOOLS = [
@@ -313,7 +313,7 @@ def _post(url: str, token: str, message: dict, session: str = "",
         "Content-Type": "application/json",
         "Accept": "application/json, text/event-stream",
         "MCP-Protocol-Version": PROTOCOL_VERSION,
-        "User-Agent": "Jarvis-MCP-Client/2.4.4",
+        "User-Agent": "Jarvis-MCP-Client/2.4.5",
     }
     if token:
         headers["Authorization"] = "Bearer " + token

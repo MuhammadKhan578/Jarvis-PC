@@ -99,6 +99,11 @@ no API keys, no logs, and no private data**.
   extension `1001` rings. Consent before recording, male voice, local transcripts.
   Real SIM/PSTN numbers still need a SIP trunk or GSM gateway. See
   `docs/ASTERISK_LINE.md` and `asterisk/setup_asterisk.ps1`.
+- **Twilio quick setup (v2.4.5)** - `phone_line_setup.ps1` prompts for your SID,
+  token and numbers locally (token never pasted into chat), configures Jarvis and
+  starts the webhook. `phone_line_webhook.ps1 -TunnelUrl https://...` points your
+  Twilio number at Jarvis automatically. Trial accounts can call Jarvis from any
+  phone; Jarvis calls back only your verified mobile. See `docs/PHONE_LINE.md`.
 - Optional `jarvis_skills/` folder for your own Python skills.
 
 > Dictation latency depends on the microphone, phrase length, speech-recognition
