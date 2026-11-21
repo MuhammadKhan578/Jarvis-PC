@@ -51,17 +51,40 @@ no API keys, no logs, and no private data**.
   `.ics` attachment, and export the whole calendar to the Desktop.
 - **Real work tools (v2.2.0)** - GitHub (issues and PRs), Slack (read, summarize
   and post), Notion (search, read, create, append, comment), Linear and Jira
-  through their official APIs. Tokens live only in the local, git-ignored config.
+  through their official APIs. On Windows, tokens are protected with DPAPI in
+  the local, git-ignored config.
 - **MCP server + client (v2.2.0)** - `jarvis-memory` exposes memory, calendar,
   persona and workspace status to Claude Code, Cursor or Codex over stdio, and
   Jarvis can call remote streamable-HTTP MCP servers with their own tools.
 - **Assistant Hub (v2.2.0)** - a new **[ ASSISTANT ]** button shows dictation
   status, personality, the next 7 days of calendar, connected work tools and MCP
   helpers in one panel.
+- **Complete assistant reliability pass (v2.3.0)** - email triage and thread
+  summaries, read-only inbox checks, safe inbox organization, daily/weekly/
+  interval routines (including “every morning”), persistent multi-app missions,
+  and a Privacy view in the Assistant Hub.
+- **Real browser + Windows UI automation (v2.3.0)** - open/read webpages, find,
+  fill and click controls through Chromium DevTools; focus/read/type/save in
+  Windows apps through UI Automation. A dedicated browser profile keeps logins.
+- **Hard confirmation boundaries (v2.3.0)** - send/delete/payment/account,
+  overwrite, close-with-unsaved-work, remote MCP writes and other high-impact
+  actions are blocked until confirmed. Preapproved scheduled actions are limited
+  to the exact routine the user approved.
+- **Credential and privacy hardening (v2.3.0)** - Gemini, work-tool, MCP and Home
+  Assistant credentials use Windows DPAPI; secrets are redacted from command
+  logs and memory. Memory learning and the verbatim archive can be switched off.
+- **MCP connections for coding agents (v2.3.0)** - `jarvis-memory` now adds
+  read-only connected-workspace queries and quick cited research, alongside
+  memory, calendar and writing-style context.
 - Optional `jarvis_skills/` folder for your own Python skills.
 
+> Dictation latency depends on the microphone, phrase length, speech-recognition
+> service and network. Jarvis reports the measured last/average recognition
+> latency; it does **not** advertise an unverified fixed “240 ms” figure.
+
 See [`docs/ASSISTANT.md`](docs/ASSISTANT.md) for dictation, calendar, work-tool,
-MCP, personality setup and the privacy/platform notes.
+MCP, personality setup and the privacy/platform notes. The item-by-item status
+and test boundaries are in [`docs/FEATURE_MATRIX.md`](docs/FEATURE_MATRIX.md).
 
 ---
 
@@ -156,7 +179,8 @@ If you already run Home Assistant, say **“connect home assistant”** and give
 Jarvis the URL (for example `http://192.168.1.10:8123`) and a long-lived access
 token. Jarvis then mirrors every command to the real devices and can import
 their current state with **“sync home”**. The token is stored only in
-`jarvis_data/smarthome_config.json` on your PC.
+`jarvis_data/smarthome_config.json` on your PC and is protected with Windows
+DPAPI.
 
 Without Home Assistant everything still works locally, so the feature can never
 block the rest of the assistant.
@@ -176,6 +200,7 @@ block the rest of the assistant.
 | `jarvis_core/workspace.py` | GitHub, Slack, Notion, Linear and Jira adapters |
 | `jarvis_core/mcp.py` | `jarvis-memory` MCP server + HTTP MCP client |
 | `jarvis_core/persona.py` | Personality and writing-voice learning |
+| `jarvis_core/privacy.py` | Privacy status, Windows permission links and local data controls |
 | `jarvis_mcp_server.py` | stdio entrypoint for other MCP agents |
 | `jarvis_skills/` | Optional user skills |
 | `Jarvis.bat` | Launches the HUD |
@@ -199,8 +224,11 @@ These paths are listed in `.gitignore`.
 ## Privacy
 
 - Your Gemini key lives in `%APPDATA%\Jarvis\config.json`.
-- Memory and settings live in local files next to the app.
-- Smart-home state and an optional Home Assistant token stay on your PC.
+- On Windows, saved Gemini/work/MCP/Home Assistant credentials are protected
+  with the current user's DPAPI key.
+- Memory and settings live in local files next to the app. You can disable
+  automatic learning or the verbatim archive from `privacy_operation`.
+- Smart-home state and an optional protected Home Assistant token stay on your PC.
 - No analytics, telemetry or cloud sync is included.
 - If you publish a fork, keep `.gitignore` intact and never commit runtime
   data or keys.
@@ -215,8 +243,8 @@ See [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md). Common fixes:
   (3.11/3.12) or install it with `pipwin`.
 - **No microphone found** — click **SELECT MIC** in the HUD and pick the right
   device.
-- **No sound** — install a male English (India) voice in Windows
-  Settings > Time & language > Speech.
+- **No sound** — Edge TTS needs internet; install a local male English voice in
+  Windows Settings > Time & language > Speech for offline fallback.
 - **Key not remembered** — check that `%APPDATA%\Jarvis\config.json` exists and
   is writable.
 - **"Invalid key" or an expired/blocked key** — open **`[ API KEY ]`**, press
@@ -231,5 +259,13 @@ See [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md). Common fixes:
 
 - A Gemini API key is required. Google may offer a free tier; check your
   Google AI Studio account for current limits and billing.
+- Recurring work runs while Jarvis is running and the PC is awake; a due job is
+  picked up after the PC wakes or Jarvis starts again.
+- Browser control is experimental. Read-only navigation runs directly; sending,
+  deleting, purchasing, account changes and similar actions require review.
+- Windows controls microphone access in **Settings > Privacy & security >
+  Microphone**. Unlike macOS, Windows has no separate desktop screen-recording,
+  accessibility or local-calendar permission prompt; Jarvis reports this
+  honestly in its Privacy view instead of pretending to request one.
 - The original project included personal runtime data. This repository is a
   clean source-only copy; it intentionally omits all of it.

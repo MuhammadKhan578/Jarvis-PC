@@ -219,6 +219,9 @@ def fetch_page(url: str, max_chars: int = 18000) -> dict:
     try:
         r = _get(url, timeout=15, allow_redirects=True)
         result["url"] = r.url
+        if int(getattr(r, "status_code", 200) or 200) >= 400:
+            result["error"] = f"HTTP {r.status_code}"
+            return result
         ctype = (r.headers.get("content-type") or "").lower()
         if "json" in ctype:
             text = json.dumps(r.json(), indent=2)[:max_chars]
@@ -231,6 +234,9 @@ def fetch_page(url: str, max_chars: int = 18000) -> dict:
             result["error"] = f"unsupported content type: {ctype}"
             return result
 
+        if BeautifulSoup is None:
+            result["error"] = "beautifulsoup4 is not installed"
+            return result
         soup = BeautifulSoup(r.text, "html.parser")
         for tag in soup(["script", "style", "noscript", "svg", "iframe", "form", "button",
                          "nav", "footer", "header", "aside", "menu", "dialog"]):
@@ -397,7 +403,7 @@ def _plan_queries(topic: str, n: int) -> list[str]:
                 qs.append(q)
     if len(qs) < 2:
         base = _keyword_query(topic)
-        qs = [base, f"{base} latest 2026", f"{base} explained", f"{base} analysis data",
+        qs = [base, f"{base} latest {datetime.now().year}", f"{base} explained", f"{base} analysis data",
               f"{base} pros and cons"]
     return qs[:n]
 

@@ -18,9 +18,8 @@ mail server confirms it.
 
 Reading is deterministic too: "check my inbox" / "koi nayi email aayi hai?"
 reads Gmail's list rows (never opening a message), summarises who sent what and
-what needs action, and then marks those same unread emails read through Gmail's
-own toolbar, as the user asked.  If Gmail is not signed in, the reply says
-exactly that instead of inventing mail, and nothing is marked.
+what needs action, without silently marking anything read.  If Gmail is not
+signed in, the reply says exactly that instead of inventing mail.
 """
 from __future__ import annotations
 
@@ -48,7 +47,8 @@ _SEND_VERBS = {"send", "bhej", "bhejo", "bhejdo", "bhejna", "bhejni", "bhejain",
                "tell", "message", "inform", "contact"}
 _READ_WORDS = {"inbox", "status", "configure", "configured", "setup", "read", "search",
                "check", "delete", "remove", "trash", "archive", "spam", "mark", "list",
-               "count", "unread", "reply", "forward",
+               "count", "unread", "reply", "forward", "triage", "organize", "organise",
+               "summarize", "summarise", "prioritize", "prioritise", "thread",
                # Attachments need a real file path; let the model/tool handle them
                # instead of drafting a nonsense body like "send file to".
                "file", "files", "document", "documents", "attachment", "attachments"}
@@ -295,21 +295,33 @@ def _looks_like_password(text: str) -> str:
 
 
 def redact_secrets(text: str) -> str:
-    """Keep App Passwords out of the permanent archive and learned facts."""
+    """Keep account passwords/API tokens out of archives, learning and logs."""
     if not text:
         return text
     # While the setup wizard is waiting for the password, the whole message is
     # the secret (the user may type only the 16 characters).
     if _active_setup() and _SETUP.get("stage") == "password":
         return "[REDACTED APP PASSWORD]"
-    low = text.lower()
+    cleaned = str(text)
+    # Common token families used by Jarvis integrations.  Keep the surrounding
+    # command so the archive still records that a service was configured.
+    cleaned = re.sub(
+        r"(?<![A-Za-z0-9])(?:github_pat_[A-Za-z0-9_]+|gh[pousr]_[A-Za-z0-9_]+|"
+        r"xox[baprs]-[A-Za-z0-9-]+|lin_api_[A-Za-z0-9_\-]+|secret_[A-Za-z0-9_\-]+|"
+        r"sk-[A-Za-z0-9_\-]{12,}|AIza[A-Za-z0-9_\-]{20,}|AQ\.[A-Za-z0-9._\-]{12,})",
+        "[REDACTED TOKEN]", cleaned, flags=re.I)
+    cleaned = re.sub(
+        r"(?i)(\b(?:access[ _-]?token|api[ _-]?key|client[ _-]?secret|token|password)\b"
+        r"\s*(?:is|=|:|-)?\s*)([^\s,;]{8,})",
+        lambda m: m.group(1) + "[REDACTED SECRET]", cleaned)
+    low = cleaned.lower()
     if not ("password" in low or " pass" in low):
-        return text
+        return cleaned
     if not any(w in low for w in ("email", "mail", "gmail", "smtp", "configure",
-                                  "login", "app password")):
-        return text
+                                   "login", "app password")):
+        return cleaned
     return _PASSWORD_RE.sub(
-        lambda m: m.group(0).replace(m.group(1), "[REDACTED APP PASSWORD]"), text)
+        lambda m: m.group(0).replace(m.group(1), "[REDACTED APP PASSWORD]"), cleaned)
 
 
 def _is_yes(low: str) -> bool:
@@ -550,6 +562,11 @@ def _is_inbox_request(text: str) -> bool:
         return False
     if _is_gmail_close_request(text):
         return False
+    # Rich triage/thread/organization requests belong to email_operation so the
+    # tool can produce a report and enforce confirmation for any state change.
+    if words & {"triage", "organize", "organise", "summarize", "summarise",
+                "prioritize", "prioritise", "thread"}:
+        return False
     low = _plain(text).lower()
     return any(re.search(pattern, low) for pattern in _INBOX_PATTERNS)
 
@@ -604,7 +621,7 @@ def _summarize_inbox(msgs: list, unread_only: bool) -> dict:
 
 
 def _check_inbox(text: str) -> bool:
-    """Read Gmail in Brave and summarise the newest mail honestly."""
+    """Read Gmail in Brave and summarise it without silently changing state."""
     words = _words(text)
     unread_only = bool(words & {"unread", "new", "nayi", "nayee", "naya", "naye",
                                 "latest", "recent"})
@@ -653,9 +670,14 @@ def _check_inbox(text: str) -> bool:
     summary = _summarize_inbox(msgs, unread_only)
     core.say_lang(summary["en"], summary["roman"], summary["urdu"])
 
-    # The user asked for the mail they were just told about to end up read.
+    # Listing/summarising is read-only.  Only an explicit "mark ... read"
+    # phrase changes message state; opening a specific Gmail message may still
+    # naturally mark that one message read.
     targets = [m for m in msgs if m.get("unread")]
-    if not targets:
+    explicit_mark = bool(re.search(
+        r"\b(?:mark|nishan|mark\s+karo|kar\s+do)\b.{0,30}\b(?:as\s+)?read\b|"
+        r"\bread\b.{0,20}\bmark\b", _plain(text).lower()))
+    if not targets or not explicit_mark:
         return True
     try:
         result = gmail_web.mark_inbox_read(messages=targets,

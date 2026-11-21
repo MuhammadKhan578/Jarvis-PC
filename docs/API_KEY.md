@@ -41,9 +41,10 @@ Linux   : ~/.config/jarvis/config.json
 macOS   : ~/Library/Application Support/Jarvis/config.json
 ```
 
-The file is created with user-only permissions where the OS supports it. It is
-**never** written into the project folder and is excluded from git by
-`.gitignore`.
+On Windows the saved value is protected with **DPAPI**, so only the same Windows
+user account can decrypt it. Older plaintext Jarvis configs are upgraded on the
+next read. On other platforms the file is created with user-only permissions.
+It is **never** written into the project folder and is excluded from git.
 
 You can move the folder with the `JARVIS_CONFIG` environment variable:
 

@@ -15,7 +15,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from . import core
 
@@ -60,8 +60,17 @@ def _parse_when(text: str) -> datetime | None:
         except ValueError:
             return None
 
+    for fmt in ("%d/%m/%Y %H:%M", "%d/%m/%Y", "%d-%m-%Y %H:%M", "%d-%m-%Y"):
+        try:
+            return datetime.strptime(raw, fmt)
+        except ValueError:
+            continue
+
     m = re.search(r"\b(?:in|after|baad)\s+(\d+)\s*(sec|second|seconds|min|minute|minutes|"
                   r"hour|hours|ghanta|ghante|day|days|din)\b", t)
+    if not m:
+        m = re.search(r"\b(\d+)\s*(sec|second|seconds|min|minute|minutes|"
+                      r"hour|hours|ghanta|ghante|day|days|din)\s+(?:baad|later)\b", t)
     if m:
         n = int(m.group(1))
         unit = m.group(2)
@@ -74,14 +83,18 @@ def _parse_when(text: str) -> datetime | None:
         return now + timedelta(minutes=n)
 
     day = None
-    if re.search(r"\b(tomorrow|kal)\b", t):
-        day = now + timedelta(days=1)
-    elif re.search(r"\b(day after tomorrow|parson|parso)\b", t):
+    if re.search(r"\b(day\s+after\s+tomorrow|parson|parso)\b", t):
         day = now + timedelta(days=2)
+    elif re.search(r"\b(tomorrow|kal)\b", t):
+        day = now + timedelta(days=1)
     elif re.search(r"\b(today|aaj|tonight|aaj raat)\b", t):
         day = now
 
     m = re.search(r"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b", t)
+    if not m:
+        # Explicit 24-hour clock, including documented forms such as
+        # "today 18:30" and "kal 09:15".
+        m = re.search(r"\b(?:at\s+|@\s*)?(\d{1,2}):(\d{2})\b", t)
     if not m:
         m = re.search(r"\b(\d{1,2})\s*(?::(\d{2}))?\s*(?:baje|o'?clock)\b", t)
     if not m:
@@ -108,11 +121,6 @@ def _parse_when(text: str) -> datetime | None:
     if day is not None:
         return day.replace(hour=9, minute=0, second=0, microsecond=0)
 
-    for fmt in ("%d/%m/%Y %H:%M", "%d/%m/%Y", "%d-%m-%Y %H:%M", "%d-%m-%Y"):
-        try:
-            return datetime.strptime(raw, fmt)
-        except ValueError:
-            continue
     return None
 
 
@@ -130,18 +138,38 @@ def _attendees(text: str) -> list[str]:
     return [p.strip() for p in parts if "@" in p and "." in p]
 
 
+def _clean_title(text: str) -> str:
+    """Remove scheduling phrases without deleting meaningful numbers ("Project 2")."""
+    value = str(text or "")
+    value = re.sub(r"\b(?:day\s+after\s+tomorrow|tomorrow|today|tonight|kal|aaj|aaj\s+raat|parson|parso)\b",
+                   " ", value, flags=re.I)
+    value = re.sub(r"\b\d{4}-\d{2}-\d{2}(?:[ t]\d{1,2}:\d{2})?\b", " ", value)
+    value = re.sub(r"\b(?:at\s+|@\s*)\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b", " ", value, flags=re.I)
+    value = re.sub(r"\b\d{1,2}(?::\d{2})?\s*(?:am|pm|baje|o'?clock)\b", " ", value, flags=re.I)
+    value = re.sub(r"\b(?:[01]?\d|2[0-3]):[0-5]\d\b", " ", value)
+    value = re.sub(r"\b(?:in|after|baad)\s+\d+\s*(?:seconds?|secs?|minutes?|mins?|hours?|ghant[ae]|days?|din)\b",
+                   " ", value, flags=re.I)
+    value = re.sub(r"\b\d+\s*(?:seconds?|secs?|minutes?|mins?|hours?|ghant[ae]|days?|din)\s+(?:baad|later)\b",
+                   " ", value, flags=re.I)
+    value = re.sub(r"\b(?:for|ke\s+liye)\s+\d+\s*(?:minutes?|mins?|hours?|ghant[ae])\b",
+                   " ", value, flags=re.I)
+    value = re.sub(r"\s{2,}", " ", value).strip(" ,-@")
+    return value
+
+
 def _ics_dt(dt: datetime) -> str:
     return dt.strftime("%Y%m%dT%H%M%S")
 
 
-def _ics(events: list[dict]) -> str:
-    stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+def _ics(events: list[dict], method: str = "PUBLISH") -> str:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    method = "REQUEST" if str(method).upper() == "REQUEST" else "PUBLISH"
     lines = [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",
         "PRODID:-//Jarvis//Local Calendar//EN",
         "CALSCALE:GREGORIAN",
-        "METHOD:PUBLISH",
+        f"METHOD:{method}",
     ]
     for ev in events:
         try:
@@ -164,7 +192,12 @@ def _ics(events: list[dict]) -> str:
         if ev.get("notes"):
             lines.append(f"DESCRIPTION:{_esc(ev['notes'])}")
         for person in ev.get("attendees") or []:
-            lines.append(f"ATTENDEE:mailto:{_esc(person)}")
+            if method == "REQUEST":
+                lines.append(f"ATTENDEE;ROLE=REQ-PARTICIPANT;RSVP=TRUE:mailto:{_esc(person)}")
+            else:
+                lines.append(f"ATTENDEE:mailto:{_esc(person)}")
+        if method == "REQUEST":
+            lines.extend(["STATUS:CONFIRMED", "SEQUENCE:0"])
         lines.extend(["END:VEVENT"])
     lines.append("END:VCALENDAR")
     return "\r\n".join(lines) + "\r\n"
@@ -212,7 +245,9 @@ def _range_events(events: list[dict], span: str) -> list[dict]:
     elif span in ("all", "sab"):
         start, end = datetime(1970, 1, 1), datetime(2100, 1, 1)
     else:
-        start, end = now, now + timedelta(days=30)
+        m = re.fullmatch(r"\s*(\d{1,3})\s*(?:days?|din)\s*", span)
+        days = max(1, min(365, int(m.group(1)))) if m else 30
+        start, end = now, now + timedelta(days=days)
     out = []
     for ev in events:
         try:
@@ -233,7 +268,7 @@ def upcoming(days: int = 7) -> str:
 
 
 def calendar_operation(action: str = "list", title: str = "", start: str = "",
-                       duration_minutes: int = 30, location: str = "", notes: str = "",
+                       duration_minutes: int = 0, location: str = "", notes: str = "",
                        attendees: str = "", query: str = "", range: str = "upcoming",
                        confirmed: bool = False) -> str:
     """Create, read, reschedule, delete, invite and export calendar events.
@@ -266,10 +301,7 @@ def calendar_operation(action: str = "list", title: str = "", start: str = "",
         if not when:
             return ("I could not read the date/time. Try 'tomorrow 5 pm', 'kal 3 baje', "
                     "'in 2 hours' or '2026-11-14 09:30'.")
-        clean_title = re.sub(
-            r"\b(?:tomorrow|today|kal|aaj|at|in|after|baad|baje|o'?clock|am|pm|\d{1,2}(?::\d{2})?)\b",
-            " ", title, flags=re.I).strip(" ,-")
-        clean_title = re.sub(r"\s{2,}", " ", clean_title) or title.strip()
+        clean_title = _clean_title(title) or title.strip()
         minutes = int(duration_minutes or 0) or _duration(title + " " + start)
         ev = {
             "id": _new_id(clean_title, when.isoformat()),
@@ -339,7 +371,7 @@ def calendar_operation(action: str = "list", title: str = "", start: str = "",
         path = os.path.join(core.DATA_DIR, "calendar_ics", core.safe_filename(ev["title"], "invite") + ".ics")
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8", newline="") as f:
-            f.write(_ics([ev]))
+            f.write(_ics([ev], method="REQUEST"))
         try:
             from .integrations import send_email
             body = (
@@ -350,7 +382,7 @@ def calendar_operation(action: str = "list", title: str = "", start: str = "",
                 + "\nThe attached .ics file opens in any calendar app."
             )
             return send_email(to=", ".join(people), subject=f"Invitation: {ev['title']}",
-                              body=body, attachments=path)
+                              body=body, attachments=path, confirmed=confirmed)
         except Exception as e:
             return f"Invitation file created at {path}, but email failed: {e}"
 

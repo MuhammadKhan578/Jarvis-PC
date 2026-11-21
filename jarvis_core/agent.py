@@ -301,13 +301,23 @@ def _run_mission(mid: str):
             with _MISSIONS_LOCK:
                 data = _load_missions()
                 m = data.get(mid) or m
+                step_state = "unknown"
                 for s in m.get("plan", []):
                     if s.get("n") == step.get("n"):
-                        s["status"] = "done" if not text.startswith("Step failed:") else "failed"
+                        low_result = (text or "").lower()
+                        if "confirmation required" in low_result:
+                            s["status"] = "blocked"
+                        elif (text.startswith("Step failed:") or low_result.startswith("could not")
+                              or any(mark in low_result for mark in (
+                                " could not ", " failed:", "not configured", "nothing has been done"))):
+                            s["status"] = "failed"
+                        else:
+                            s["status"] = "done"
+                        step_state = s["status"]
                         s["result"] = core.truncate(text, 2000)
                 m["updated"] = time.time()
                 _save_missions(data)
-            core.log(f"Mission {mid} step {step['n']} done: {core.truncate(text, 200)}")
+            core.log(f"Mission {mid} step {step['n']} {step_state}: {core.truncate(text, 200)}")
 
         with _MISSIONS_LOCK:
             data = _load_missions()
@@ -337,8 +347,15 @@ def _run_mission(mid: str):
                 data[mid]["report"] = html_path or md_path
                 _save_missions(data)
 
-        spoken = core.truncate(final or "All planned steps are complete.", 600)
-        core.say_async("Mission complete, sir. " + spoken)
+        spoken = core.truncate(final or ("All planned steps are complete."
+                                         if m.get("status") == "done"
+                                         else "Some steps need attention; see the report."), 600)
+        if m.get("status") == "done":
+            core.say_async("Mission complete, sir. " + spoken)
+        elif m.get("status") == "cancelled":
+            core.say_async("Mission cancelled, sir. The report records the completed work.")
+        else:
+            core.say_async("Mission stopped before full completion, sir. " + spoken)
         core.audit("mission", m["goal"], f"{mid} {m['status']} report={html_path}", risk="normal")
     except Exception as e:
         core.log(f"mission {mid} failed: {e}")
@@ -493,6 +510,42 @@ def mission_operation(action: str = "start", goal: str = "", mission_id: str = "
 # --------------------------------------------------------------------------
 # Scheduler
 # --------------------------------------------------------------------------
+_WEEKDAYS = {
+    "monday": 0, "mon": 0, "peer": 0,
+    "tuesday": 1, "tue": 1, "mangal": 1,
+    "wednesday": 2, "wed": 2, "budh": 2,
+    "thursday": 3, "thu": 3, "jumeraat": 3,
+    "friday": 4, "fri": 4, "jumma": 4,
+    "saturday": 5, "sat": 5, "hafta": 5,
+    "sunday": 6, "sun": 6, "itwar": 6,
+}
+_DAYPARTS = {
+    "morning": "08:00", "subah": "08:00",
+    "afternoon": "13:00", "dopahar": "13:00",
+    "evening": "18:00", "shaam": "18:00",
+    "night": "21:00", "raat": "21:00",
+}
+
+
+def _clock_parts(text: str) -> tuple[int, int, str] | None:
+    """Find an explicit clock without mistaking task numbers ("project 2") for time."""
+    t = str(text or "").lower()
+    patterns = (
+        r"\b(?:at|ko|se)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b",
+        r"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b",
+        r"\b(\d{1,2})(?::(\d{2}))?\s*(baje)\b",
+    )
+    for pattern in patterns:
+        m = re.search(pattern, t)
+        if not m:
+            continue
+        hh = int(m.group(1)) % 24
+        mm = int(m.group(2) or 0) % 60
+        marker = str(m.group(3) or "").lower()
+        return hh, mm, marker if marker in ("am", "pm") else ""
+    return None
+
+
 def _load_schedule() -> dict:
     data = core.read_json(SCHEDULE_FILE, {})
     return data if isinstance(data, dict) else {}
@@ -529,7 +582,8 @@ def _next_run(job: dict, now: float | None = None) -> float:
 
 
 def add_schedule(when: float, prompt: str, kind: str = "once", time_str: str = "",
-                 interval: int = 0, weekday: int = 0, label: str = "") -> dict:
+                 interval: int = 0, weekday: int = 0, label: str = "",
+                 preapproved: bool = False, risk: str = "normal") -> dict:
     job = {
         "id": "S" + uuid.uuid4().hex[:8],
         "kind": kind,
@@ -544,6 +598,8 @@ def add_schedule(when: float, prompt: str, kind: str = "once", time_str: str = "
         "last_run": 0,
         "runs": 0,
         "next": when,
+        "preapproved": bool(preapproved),
+        "risk": str(risk or "normal"),
     }
     with _SCHEDULE_LOCK:
         data = _load_schedule()
@@ -553,12 +609,16 @@ def add_schedule(when: float, prompt: str, kind: str = "once", time_str: str = "
 
 
 def parse_schedule_text(text: str) -> dict | None:
-    """Understand 'in 10 minutes', 'at 17:30', 'daily at 9 am', 'every 2 hours'."""
+    """Understand one-off, interval, daily and weekly natural schedules."""
     t = (text or "").lower().strip()
     if not t:
         return None
     now = time.time()
     m = re.search(r"\bin\s+(\d+)\s*(sec|second|seconds|min|minute|minutes|hour|hours|ghanta|ghante)\b", t)
+    if not m:
+        m = re.search(r"\b(?:after|baad)\s+(\d+)\s*(sec|second|seconds|min|minute|minutes|hour|hours|ghanta|ghante)\b", t)
+    if not m:
+        m = re.search(r"\b(\d+)\s*(sec|second|seconds|min|minute|minutes|hour|hours|ghanta|ghante)\s+(?:baad|later)\b", t)
     if m:
         n = int(m.group(1))
         unit = m.group(2)
@@ -571,11 +631,47 @@ def parse_schedule_text(text: str) -> dict | None:
         mult = 1 if unit.startswith("sec") else 60 if unit.startswith(("min", "minute")) else 3600
         return {"kind": "interval", "interval": n * mult, "when": now + n * mult,
                 "label": f"every {n} {unit}"}
-    m = re.search(r"\b(?:daily|roz|every day|har roz)\b.*?\b(?:at|se|ko)?\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?", t)
+    m = re.search(r"\b(?:every|har|daily|roz)\s+(morning|subah|afternoon|dopahar|evening|shaam|night|raat)\b", t)
     if m:
-        hh = int(m.group(1)) % 24
-        mm = int(m.group(2) or 0) % 60
-        ap = m.group(3)
+        part = m.group(1)
+        time_str = _DAYPARTS[part]
+        explicit = _clock_parts(t[m.end():])
+        if explicit:
+            hh, mm, ap = explicit
+            if ap == "pm" and hh < 12:
+                hh += 12
+            if ap == "am" and hh == 12:
+                hh = 0
+            if not ap and part in ("afternoon", "dopahar", "evening", "shaam", "night", "raat") and hh < 12:
+                hh += 12
+            time_str = f"{hh % 24:02d}:{mm:02d}"
+        tmp = {"kind": "daily", "time": time_str}
+        return {**tmp, "when": _next_run(tmp, now),
+                "label": f"every {part} at {time_str}"}
+    weekday_words = "|".join(sorted(_WEEKDAYS, key=len, reverse=True))
+    m = re.search(rf"\b(?:every|har|weekly(?:\s+on)?)\s+({weekday_words})\b", t)
+    if m:
+        day_name = m.group(1)
+        clock = _clock_parts(t[m.end():])
+        if not clock:
+            return None
+        hh, mm, ap = clock
+        if ap == "pm" and hh < 12:
+            hh += 12
+        if ap == "am" and hh == 12:
+            hh = 0
+        if not ap and 0 <= hh <= 7:
+            hh += 12
+        time_str = f"{hh % 24:02d}:{mm:02d}"
+        tmp = {"kind": "weekly", "weekday": _WEEKDAYS[day_name], "time": time_str}
+        return {**tmp, "when": _next_run(tmp, now),
+                "label": f"every {day_name.title()} at {time_str}"}
+    m = re.search(r"\b(?:daily|roz|every day|har roz)\b", t)
+    if m:
+        clock = _clock_parts(t[m.end():])
+        if not clock:
+            return None
+        hh, mm, ap = clock
         if ap == "pm" and hh < 12:
             hh += 12
         if ap == "am" and hh == 12:
@@ -603,10 +699,19 @@ def parse_schedule_text(text: str) -> dict | None:
 
 
 _TIME_REMOVERS = [
-    r"\bin\s+\d+\s*(?:sec|second|seconds|min|minute|minutes|hour|hours|ghanta|ghante)\b",
-    r"\b(?:daily|roz|every\s+day|har\s+roz)\b(?:\s+(?:at|se|ko))?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?",
-    r"\bevery\s+\d+\s*(?:sec|second|seconds|min|minute|minutes|hour|hours|ghanta|ghante)\b",
-    r"\b(?:at|ko)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b",
+    r"\b(?:in|after|baad)\s+\d+\s*(?:sec|second|seconds|min|minute|minutes|hour|hours|ghanta|ghante)\b",
+    r"\b\d+\s*(?:sec|second|seconds|min|minute|minutes|hour|hours|ghanta|ghante)\s+(?:baad|later)\b",
+    r"\b(?:every|har|daily|roz)\s+(?:morning|subah|afternoon|dopahar|evening|shaam|night|raat)\b"
+    r"(?:\s+(?:(?:at|ko)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?|"
+    r"\d{1,2}(?::\d{2})?\s*(?:am|pm|baje)))?",
+    r"\b(?:daily|roz|every\s+day|har\s+roz)\b(?:\s+(?:(?:at|se|ko)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?|"
+    r"\d{1,2}(?::\d{2})?\s*(?:am|pm|baje)))?",
+    r"\b(?:every|har)\s+\d+\s*(?:sec|second|seconds|min|minute|minutes|hour|hours|ghanta|ghante)\b",
+    r"\b(?:every|har|weekly(?:\s+on)?)\s+(?:monday|mon|peer|tuesday|tue|mangal|"
+    r"wednesday|wed|budh|thursday|thu|jumeraat|friday|fri|jumma|saturday|sat|hafta|"
+    r"sunday|sun|itwar)\b",
+    r"\b(?:at|ko|se)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*(?:baje)?\b",
+    r"\b\d{1,2}(?::\d{2})?\s*(?:am|pm|baje)\b",
 ]
 
 
@@ -625,7 +730,8 @@ def schedule_operation(action: str = "add", text: str = "", prompt: str = "",
 
     action:
       add      - schedule something. Put the natural language request in text
-                 ('in 20 minutes remind me to drink water', 'daily at 9 am give me the news').
+                 ('in 20 minutes remind me to drink water', 'daily at 9 am give me the news',
+                  'every morning summarize my inbox', 'every Friday at 5 pm weekly review').
       list     - show every scheduled job
       remove   - delete a job (job_id, confirmed=true)
       pause / resume - disable or enable a job (job_id)
@@ -636,13 +742,23 @@ def schedule_operation(action: str = "add", text: str = "", prompt: str = "",
         parsed = parse_schedule_text(text)
         if not parsed:
             return ("I could not understand the time. Say it like 'in 20 minutes ...', "
-                    "'at 6:30 pm ...' or 'daily at 9 am ...'.")
+                    "'at 6:30 pm ...', 'every morning ...' or 'every Friday at 5 pm ...'.")
         task = (prompt or _extract_prompt(text)).strip()
         if not task:
             return "What should I do at that time?"
+        risky = core.high_risk_action(task)
+        if risky:
+            msg = core.guard(
+                "schedule_operation:add_high_impact", confirmed,
+                "Schedule this action for automatic execution: " + core.truncate(task, 180)
+            )
+            if msg:
+                return msg
         job = add_schedule(parsed["when"], task, kind=parsed.get("kind", "once"),
                            time_str=parsed.get("time", ""), interval=parsed.get("interval", 0),
-                           label=parsed.get("label", ""))
+                           weekday=parsed.get("weekday", 0), label=parsed.get("label", ""),
+                           preapproved=bool(risky and confirmed),
+                           risk="high" if risky else "normal")
         when_txt = time.strftime("%A %d %b at %I:%M %p", time.localtime(job["when"]))
         return (f"Scheduled ({job['id']}): {core.truncate(task, 160)} — {parsed.get('label','')}, "
                 f"next run {when_txt}.")
@@ -653,7 +769,8 @@ def schedule_operation(action: str = "add", text: str = "", prompt: str = "",
         rows = []
         for job in sorted(data.values(), key=lambda j: j.get("next") or 0):
             state = "on" if job.get("enabled", True) else "paused"
-            rows.append(f"- {job['id']} [{state}, {job.get('kind')}] {core.truncate(job.get('prompt',''), 120)} "
+            approval = ", preapproved" if job.get("preapproved") else ""
+            rows.append(f"- {job['id']} [{state}, {job.get('kind')}{approval}] {core.truncate(job.get('prompt',''), 120)} "
                         f"→ {time.strftime('%d %b %I:%M %p', time.localtime(job.get('next') or 0))}")
         return "\n".join(rows)
     if a in ("remove", "delete"):
@@ -713,7 +830,20 @@ def _scheduler_loop():
                 prompt = (job.get("prompt") or "").strip()
                 if not prompt:
                     continue
-                core.log(f"Scheduler firing {job['id']}: {core.truncate(prompt, 120)}")
+                task_for_log = prompt
+                if job.get("preapproved"):
+                    prompt = (
+                        f"[PREAPPROVED SCHEDULED TASK {job.get('id')}: the user explicitly approved "
+                        "this exact recurring/automatic action when creating the schedule. Pass "
+                        "confirmed=true only for this exact action; do not extend the approval.]\n"
+                        + prompt
+                    )
+                try:
+                    from . import mail as mail_mod
+                    logged_prompt = mail_mod.redact_secrets(task_for_log)
+                except Exception:
+                    logged_prompt = "<scheduled task>"
+                core.log(f"Scheduler firing {job['id']}: {core.truncate(logged_prompt, 120)}")
                 core.say_async("Sir, a scheduled task is due.")
                 q = core.G.get("command_queue")
                 if q is not None:

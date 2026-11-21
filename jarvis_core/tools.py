@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 import time
 
-from . import calendar_tools, core, dictation, mcp, news, persona, smarthome, workspace
+from . import calendar_tools, core, dictation, mcp, news, persona, privacy, smarthome, workspace
 from .agent import mission_operation, schedule_operation, skill_operation
 from .brain import brain_operation
 from .browser import browser_operation
@@ -28,15 +28,19 @@ def config_operation(key: str = "", value: str = "", confirmed: bool = False) ->
       safe_mode     - true/false: ask before destructive actions (default true)
       hud           - true/false: the arc-reactor overlay
       auto_learn    - true/false: learn durable facts from conversations
+      memory_enabled- true/false: inject/use local long-term memory
+      archive_enabled- true/false: append verbatim conversations locally
       research_depth- quick, standard or deep
       safe_mode off turns off confirmation prompts; only do this when the user explicitly asks
     """
     cfg = core.load_config()
     k = (key or "").strip().lower()
     if not k:
-        shown = {x: cfg.get(x) for x in ("safe_mode", "hud", "auto_learn", "research_depth")}
+        shown = {x: cfg.get(x) for x in ("safe_mode", "hud", "auto_learn",
+                                         "memory_enabled", "archive_enabled", "research_depth")}
         return "Current settings:\n" + "\n".join(f"- {x}: {v}" for x, v in shown.items())
-    if k not in ("safe_mode", "hud", "auto_learn", "research_depth", "auto_repair"):
+    if k not in ("safe_mode", "hud", "auto_learn", "memory_enabled", "archive_enabled",
+                 "research_depth", "auto_repair"):
         return f"Unknown setting '{key}'."
     if value == "":
         return f"{k} = {cfg.get(k)}"
@@ -126,24 +130,32 @@ def ultimate_status() -> str:
         f"- Missions: {running} running, {done} completed  |  Scheduled jobs: {jobs}\n"
         f"- Dictation: {dictation.status()}\n"
         f"- Persona: {persona.style_line()}  |  {_calendar_line()}\n"
+        f"- Privacy: memory={'on' if cfg.get('memory_enabled', True) else 'off'}, "
+        f"archive={'on' if cfg.get('archive_enabled', True) else 'off'}, no telemetry\n"
         f"- Work tools: {_workspace_line()}  |  MCP servers: {_mcp_line()}\n"
         f"- Brain: Ultimate Reasoning Core online (deep/max multi-pass)\n"
         f"- Capabilities: research, missions, files, documents, browser, UI automation, "
         "system/network control, email, calendar, dictation, work apps (GitHub/Slack/Notion/"
         "Linear/Jira), MCP server+client, personality and writing-voice learning, "
-        "translation, skills, diagnostics, scheduler, deep reasoning.\n"
+        "translation, skills, diagnostics, scheduler, privacy controls, deep reasoning.\n"
         f"- Data folder: {core.DATA_DIR}\n"
         f"- Audit log: {core.AUDIT_FILE}"
     )
 
 
-def audit_operation(action: str = "tail", limit: int = 30, search: str = "") -> str:
+def audit_operation(action: str = "tail", limit: int = 30, search: str = "",
+                    confirmed: bool = False) -> str:
     """Inspect what Jarvis has done lately (privacy/transparency).
 
-    action: tail (latest entries), search (find a tool/word), clear (delete the audit log)
+    action: tail (latest entries), search (find a tool/word),
+    clear (delete the audit log, confirmed=true)
     """
     a = (action or "tail").lower().strip()
     if a in ("clear", "wipe"):
+        msg = core.guard("audit_operation:clear", confirmed,
+                         "Permanently clear the Jarvis audit log.")
+        if msg:
+            return msg
         try:
             open(core.AUDIT_FILE, "w", encoding="utf-8").close()
             return "Audit log cleared."
@@ -188,6 +200,7 @@ TOOL_FUNCTIONS = [
     workspace.workspace_operation,
     mcp.mcp_operation,
     persona.persona_operation,
+    privacy.privacy_operation,
     hud_operation,
     config_operation,
     ultimate_status,

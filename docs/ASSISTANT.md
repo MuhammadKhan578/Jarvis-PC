@@ -1,8 +1,9 @@
-# Jarvis assistant features (v2.2.0)
+# Jarvis assistant features (v2.3.0)
 
-This guide covers the new assistant layer added in **v2.2.0**: global dictation,
-personality and writing voice, the local calendar, real work tools, and MCP.
-Everything runs on your PC unless you explicitly connect a service.
+This guide covers the assistant layer through **v2.3.0**: global dictation,
+personality and writing voice, email/calendar, routines, real browser/Windows
+automation, connected work tools, MCP and privacy controls. Runtime data stays
+on your PC unless you explicitly invoke a cloud model/service.
 
 ---
 
@@ -35,6 +36,9 @@ Notes:
   `dictation_operation(action="type", text="...")` instead: it types exact text.
 - Speech recognition accuracy depends on your mic and Google's recogniser; the
   audio is sent for recognition exactly like normal voice input.
+- `dictation_operation(action="status")` reports the measured last and average
+  recognition latency. There is no fake fixed-latency promise: real timing
+  depends on phrase length, microphone, recogniser and network.
 
 ---
 
@@ -75,15 +79,18 @@ Times understood: `tomorrow 5 pm`, `kal 3 baje`, `today 18:30`, `in 2 hours`,
 `2026-11-14 09:30`, plus `d/m/Y` formats. Default duration is 30 minutes.
 
 Invitations need the email account already configured for Jarvis and are sent
-with a standard `.ics` attachment.
+with a standard `.ics` attachment after explicit send confirmation. Because the
+visible Gmail browser composer cannot attach files reliably, invitations require
+the optional SMTP account path; otherwise Jarvis keeps the `.ics` file and says
+exactly what is missing.
 
 ---
 
 ## 4. Work tools: GitHub, Slack, Notion, Linear, Jira
 
-Each service uses its own official HTTPS API with **your** token. Tokens are
-saved only in the local, git-ignored `jarvis_data/config.json`; they are never
-printed back, logged or committed.
+Each service uses its own official HTTPS API with **your** token. On Windows,
+tokens are protected with DPAPI in the local, git-ignored
+`jarvis_data/config.json`; they are never printed back, logged or committed.
 
 Ask Jarvis:
 
@@ -95,6 +102,8 @@ Ask Jarvis:
 - *"Search Notion for the Q4 plan"*
 - *"Create a Linear issue: fix onboarding copy"*
 - *"List Jira issues assigned to me"*
+- *"List open GitHub pull requests"*
+- *"Show rows in this Notion database: <database id>"*
 
 ### Setup
 
@@ -160,6 +169,9 @@ Tools exposed:
 - `jarvis_calendar_upcoming` — upcoming events
 - `jarvis_writing_style` — personality and learned voice
 - `jarvis_workspace_status` — which work services are connected
+- `jarvis_workspace_query` — read/search/summarize connected work services
+  (strictly read-only over MCP)
+- `jarvis_research_quick` — current web research with sources
 
 Resources: `jarvis://memory/overview`, `jarvis://calendar/upcoming`.
 
@@ -184,18 +196,74 @@ an HTTP bridge; this desktop build does not pretend otherwise.
 
 ---
 
-## 6. Privacy
+## 6. Email triage and safe organization
+
+- `email_operation(action="triage")` classifies available previews into urgent,
+  action, reply, waiting, info and newsletter. It does not change the inbox.
+- `email_operation(action="summarize", query="...")` summarizes a matching
+  thread/set and extracts decisions, deadlines and action items.
+- Listing/searching/triage are read-only. Jarvis no longer marks messages read
+  merely because it listed them.
+- `mark_read` and `organize` require confirmation. `organize` is deliberately
+  conservative: it marks only messages classified as newsletters read; it does
+  not delete or archive email.
+- A routine such as *"every morning triage my inbox"* is read-only. If a
+  recurring routine will change data, Jarvis shows the exact action and asks for
+  preapproval once; that approval cannot be reused for another action.
+
+---
+
+## 7. Routines and multi-app missions
+
+Examples:
+
+- `in 20 minutes remind me to drink water`
+- `every morning summarize what changed overnight`
+- `every Friday at 5 pm run my weekly review`
+- `every 2 hours check the project dashboard`
+
+Daily, weekly, interval and one-off jobs persist in
+`jarvis_data/schedule.json`. They run while Jarvis and the PC are awake; overdue
+jobs are picked up when the PC wakes or Jarvis starts again.
+
+For goals with dependent steps, `mission_operation` plans and executes across
+research, browser, files, documents and connected tools, persists progress and
+writes a report. A blocked/failed step now leaves the mission **partial** instead
+of falsely announcing full completion.
+
+---
+
+## 8. Browser, Windows apps and research
+
+- `browser_operation` drives a dedicated persistent Brave/Chrome/Edge profile
+  through DevTools: open/read/find/fill/click, tabs, screenshots and page text.
+- When you explicitly request a browser, Jarvis does not silently substitute a
+  different installed browser.
+- `ui_operation` uses Windows UI Automation for windows and controls; human
+  shortcuts such as `ctrl+s` are translated correctly.
+- `research_operation(action="quick"|"deep")` searches multiple sources,
+  reads pages and produces cited answers/reports with uncertainties.
+- Browser/UI send, delete, payment, purchase, account and similar controls are
+  blocked until confirmed. Browser automation remains experimental, so verify
+  important outcomes.
+
+---
+
+## 9. Privacy
 
 - Dictation audio goes to the speech recogniser exactly like normal voice input.
 - Memory, calendar, persona and tokens live in local files:
   `jarvis_data/config.json`, `jarvis_data/calendar.json`,
   `jarvis_memory.json`.
-- Work-tool tokens are stored in plain JSON locally (like the Gemini key) and
-  are **never** committed: `jarvis_data/` is in `.gitignore`.
-- Jarvis asks for microphone/accessibility permissions first:
-  Windows microphone access for voice and dictation, and only the permissions
-  the feature you use needs. Screen reading and calendar export are used only
-  when you ask for them.
+- Gemini/work/MCP/Home Assistant credentials use Windows DPAPI. Legacy plaintext
+  values are upgraded when read. They are **never** committed.
+- Use `privacy_operation(action="status")` or the **[ PRIVACY ]** Assistant Hub
+  button to inspect network use and local data. `memory_enabled`, `auto_learn`
+  and `archive_enabled` can be switched off independently.
+- Windows itself controls microphone access. Unlike macOS, Windows has no
+  separate desktop screen-recording/accessibility/local-calendar permission
+  prompt. Screen reading/UI automation and calendar export run only when you
+  invoke those features; Jarvis does not pretend an OS permission exists.
 - No analytics, telemetry or cloud sync is included.
 
 If you publish a fork, keep `.gitignore` intact and never commit APKs, keys or

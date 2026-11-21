@@ -296,13 +296,15 @@ def _fetch_inbox(cfg: dict, limit: int = 10, query: str = "",
             ids = (data[0].split() if data and data[0] else [])[-int(limit):]
         out = []
         for uid in reversed(ids):
-            typ, data = m.fetch(uid, "(RFC822)")
+            typ, data = m.fetch(uid, "(RFC822 FLAGS)")
             if typ != "OK" or not data:
                 continue
             raw = next((d[1] for d in data if isinstance(d, tuple)), None)
             if not raw:
                 continue
             msg = email.message_from_bytes(raw)
+            meta = b" ".join(d[0] for d in data if isinstance(d, tuple)
+                             and isinstance(d[0], (bytes, bytearray)))
             out.append({
                 "uid": uid.decode() if isinstance(uid, bytes) else str(uid),
                 "from": _decode(msg.get("From")),
@@ -310,6 +312,7 @@ def _fetch_inbox(cfg: dict, limit: int = 10, query: str = "",
                 "date": _decode(msg.get("Date")),
                 "snippet": re.sub(r"\s+", " ", _body_text(msg))[:300],
                 "body": _body_text(msg)[:12000],
+                "unread": b"\\Seen" not in meta,
             })
         return out
     finally:
@@ -385,6 +388,123 @@ def _gmail_web_read_text(index: int = 0) -> str:
             f"{core.truncate(m.get('body', ''), 8000)}")
 
 
+def _load_mail_rows(limit: int = 10, query: str = "",
+                    unread_only: bool = False) -> tuple[dict, str, list[dict], dict]:
+    """Return (config, mode, normalized messages, Gmail response)."""
+    cfg = _cfg()
+    has_imap = bool(cfg.get("address") and cfg.get("password"))
+    if has_imap:
+        rows = _fetch_inbox(cfg, limit, query=query, unread_only=unread_only)
+        for row in rows:
+            row.setdefault("sender", row.get("from") or "")
+        return cfg, "imap", rows, {}
+    data = gmail_web.read_inbox(limit=limit, query=query, unread_only=unread_only)
+    if not data.get("ok"):
+        raise RuntimeError(str(data.get("message") or "I could not read Gmail in Brave."))
+    return cfg, "gmail", list(data.get("messages") or []), data
+
+
+def _triage_rows(rows: list[dict]) -> dict:
+    """Classify inbox previews without changing the mailbox."""
+    if not rows:
+        return {"items": [], "summary": "No messages to triage."}
+    material = []
+    for i, row in enumerate(rows[:25], 1):
+        material.append(
+            f"{i}. From: {core.truncate(row.get('sender') or row.get('from') or '', 80)} | "
+            f"Subject: {core.truncate(row.get('subject') or '', 140)} | "
+            f"Preview: {core.truncate(row.get('snippet') or row.get('body') or '', 260)}"
+        )
+    prompt = (
+        "Triage these email previews using only their text. Categories: urgent, action, reply, "
+        "waiting, info, newsletter. Urgent means a credible deadline/security/payment problem; "
+        "newsletter means bulk digest/promotion. Never invent facts. Return ONLY JSON: "
+        '{"summary":"2-4 sentence overview","items":[{"index":1,"category":"info",'
+        '"reason":"short factual reason"}]}.\n\n' + "\n".join(material)
+    )
+    data = core.llm_json(prompt, system="You are a cautious email triage assistant. Return JSON only.",
+                         smart=False, fallback=None, max_tokens=1800)
+    if isinstance(data, dict) and isinstance(data.get("items"), list):
+        clean = []
+        allowed = {"urgent", "action", "reply", "waiting", "info", "newsletter"}
+        for item in data["items"]:
+            if not isinstance(item, dict):
+                continue
+            try:
+                index = int(item.get("index"))
+            except Exception:
+                continue
+            if not 1 <= index <= len(rows):
+                continue
+            category = str(item.get("category") or "info").lower()
+            if category not in allowed:
+                category = "info"
+            clean.append({"index": index, "category": category,
+                          "reason": core.truncate(item.get("reason") or "", 180)})
+        if clean:
+            return {"items": clean, "summary": core.truncate(data.get("summary") or "", 1200)}
+
+    # Deterministic offline fallback when Gemini is unavailable.
+    out = []
+    for i, row in enumerate(rows, 1):
+        text = " ".join(str(row.get(k) or "") for k in ("sender", "from", "subject", "snippet")).lower()
+        if re.search(r"\b(urgent|asap|overdue|security alert|verify|deadline|payment due)\b", text):
+            category, reason = "urgent", "deadline, security or payment wording"
+        elif re.search(r"\b(action required|approval|approve|invoice|meeting request|please review)\b", text):
+            category, reason = "action", "explicit action requested"
+        elif re.search(r"\b(newsletter|digest|unsubscribe|promotion|weekly update)\b", text):
+            category, reason = "newsletter", "bulk update/newsletter wording"
+        elif "?" in text or re.search(r"\b(reply|respond|your thoughts)\b", text):
+            category, reason = "reply", "appears to request a response"
+        else:
+            category, reason = "info", "informational preview"
+        out.append({"index": i, "category": category, "reason": reason})
+    return {"items": out, "summary": "Triage completed from the available previews."}
+
+
+def _triage_text(rows: list[dict], triage: dict) -> str:
+    lines = [str(triage.get("summary") or "Inbox triage:"), ""]
+    for item in triage.get("items") or []:
+        index = int(item.get("index") or 0)
+        if not 1 <= index <= len(rows):
+            continue
+        row = rows[index - 1]
+        lines.append(
+            f"{index}. [{str(item.get('category') or 'info').upper()}] "
+            f"{core.truncate(row.get('subject') or '(no subject)', 110)} — "
+            f"{core.truncate(row.get('sender') or row.get('from') or 'unknown', 60)}"
+            + (f" ({item.get('reason')})" if item.get("reason") else "")
+        )
+    return "\n".join(lines)
+
+
+def _mark_imap_seen(cfg: dict, rows: list[dict]) -> tuple[bool, int, str]:
+    uids = [str(row.get("uid") or "") for row in rows if row.get("uid")]
+    if not uids:
+        return True, 0, "No matching IMAP messages."
+    m = _imap_connect(cfg)
+    marked = 0
+    try:
+        m.select("INBOX", readonly=False)
+        for uid in uids:
+            typ, _ = m.store(uid, "+FLAGS", "\\Seen")
+            if typ == "OK":
+                marked += 1
+    finally:
+        try:
+            m.logout()
+        except Exception:
+            pass
+    return marked == len(uids), marked, f"Marked {marked} message(s) as read."
+
+
+def _mark_rows(cfg: dict, mode: str, rows: list[dict], gmail_data: dict) -> tuple[bool, int, str]:
+    if mode == "imap":
+        return _mark_imap_seen(cfg, rows)
+    result = gmail_web.mark_inbox_read(messages=rows, url=gmail_data.get("url") or "")
+    return bool(result.get("ok")), int(result.get("marked") or 0), str(result.get("message") or "")
+
+
 def email_operation(action: str = "status", to: str = "", subject: str = "", body: str = "",
                     cc: str = "", attachments: str = "", query: str = "", uid: str = "",
                     limit: int = 10, address: str = "", app_password: str = "",
@@ -401,12 +521,15 @@ def email_operation(action: str = "status", to: str = "", subject: str = "", bod
       search    - search the mailbox (query)
       read      - read one message (uid from inbox; with Gmail-in-Brave it is the list position)
       draft     - draft a message with AI (to, subject, body = what it should say)
+      triage    - classify latest mail into urgent/action/reply/info/newsletter without changing it
+      summarize - summarize a mailbox search/thread (query optional)
+      mark_read - explicitly mark matching/latest unread messages read (confirmation required)
+      organize  - triage and mark only newsletter messages read (confirmation required)
 
     With no IMAP account configured, inbox/unread/search/read use the visible
-    Gmail page in Brave.  Messages are never opened just to list them.  For
-    inbox/unread, the listed unread messages are marked read afterwards through
-    Gmail's own toolbar (the user asked for this); search stays read-only, and
-    read() leaves the opened message marked read.
+    Gmail page in Brave. Listing, searching, summarizing and triage are read-only.
+    An explicit mark_read/organize action requires confirmation before changing
+    message state. Opening one message may naturally mark that message read in Gmail.
     """
     a = (action or "status").lower().strip()
     if a in ("status", "info"):
@@ -426,6 +549,76 @@ def email_operation(action: str = "status", to: str = "", subject: str = "", bod
             system="You write concise professional emails for the user. Sign as the user, never invent facts.",
             smart=False, max_tokens=1200)
         return f"Subject: {subject}\nTo: {to}\n\n{text}\n\nSay 'send it' to send this email."
+    if a in ("triage", "prioritize", "prioritise"):
+        try:
+            _, _, rows, _ = _load_mail_rows(max(3, min(25, int(limit or 10))), query=query)
+        except Exception as e:
+            return f"Inbox triage failed: {e}"
+        triage = _triage_rows(rows)
+        result = _triage_text(rows, triage)
+        core.audit("email_operation", "triage", f"{len(rows)} messages (read-only)")
+        return result
+    if a in ("summarize", "summarise", "thread", "thread_summary"):
+        try:
+            _, _, rows, _ = _load_mail_rows(max(3, min(25, int(limit or 10))), query=query)
+        except Exception as e:
+            return f"Email summary failed: {e}"
+        if not rows:
+            return f"No messages matched '{query}'." if query else "No messages to summarize."
+        material = "\n\n".join(
+            f"From: {r.get('sender') or r.get('from') or ''}\nSubject: {r.get('subject') or ''}\n"
+            f"Date: {r.get('date') or ''}\n{core.truncate(r.get('body') or r.get('snippet') or '', 1800)}"
+            for r in rows)
+        try:
+            summary = core.llm_text(
+                "Summarize this email set/thread using only the supplied messages. State key decisions, "
+                "deadlines, questions awaiting a reply and action items. Do not invent missing context.\n\n"
+                + material[:30000],
+                system="You are a factual email analyst.", smart=False, max_tokens=1800)
+        except Exception:
+            summary = "\n".join(
+                f"- {core.truncate(r.get('subject') or '(no subject)', 100)} — "
+                f"{core.truncate(r.get('snippet') or r.get('body') or '', 180)}" for r in rows)
+        return summary
+    if a in ("mark_read", "markread", "read_state"):
+        msg = core.guard("email_operation:mark_read", confirmed,
+                         f"Mark up to {max(1, min(50, int(limit or 10)))} matching inbox messages as read.")
+        if msg:
+            return msg
+        try:
+            cfg2, mode, rows, gmail_data = _load_mail_rows(
+                max(1, min(50, int(limit or 10))), query=query, unread_only=not bool(query))
+            targets = [r for r in rows if r.get("unread", True)]
+            ok, marked, detail = _mark_rows(cfg2, mode, targets, gmail_data)
+            core.audit("email_operation", "mark_read", f"marked={marked} ok={ok}", risk="high")
+            return (f"Marked {marked} email(s) as read." if ok else
+                    f"Could not confirm all messages were marked read ({marked} changed): {detail}")
+        except Exception as e:
+            return f"Could not mark email as read: {e}"
+    if a in ("organize", "organise"):
+        try:
+            cfg2, mode, rows, gmail_data = _load_mail_rows(
+                max(3, min(25, int(limit or 10))), query=query, unread_only=True)
+        except Exception as e:
+            return f"Inbox organization failed: {e}"
+        triage = _triage_rows(rows)
+        by_index = {int(x.get("index") or 0): x for x in triage.get("items") or []}
+        targets = [row for i, row in enumerate(rows, 1)
+                   if (by_index.get(i) or {}).get("category") == "newsletter" and row.get("unread", True)]
+        preview = _triage_text(rows, triage)
+        if not targets:
+            return preview + "\n\nNo unread newsletter messages were selected; nothing changed."
+        msg = core.guard("email_operation:organize", confirmed,
+                         f"Mark {len(targets)} newsletter message(s) as read. No email will be deleted or archived.")
+        if msg:
+            return preview + "\n\n" + msg
+        try:
+            ok, marked, detail = _mark_rows(cfg2, mode, targets, gmail_data)
+            core.audit("email_operation", "organize", f"newsletter marked={marked} ok={ok}", risk="high")
+            return preview + (f"\n\nMarked {marked} newsletter message(s) as read."
+                              if ok else f"\n\nCould not confirm every change ({marked} marked): {detail}")
+        except Exception as e:
+            return preview + f"\n\nOrganization failed without deleting anything: {e}"
     cfg = _cfg()
     has_imap = bool(cfg.get("address") and cfg.get("password"))
     if a in ("inbox", "list", "latest", "unread"):
@@ -443,7 +636,7 @@ def email_operation(action: str = "status", to: str = "", subject: str = "", bod
                 f"({m['date']})\n   {core.truncate(m['snippet'], 140)}"
                 for i, m in enumerate(msgs, 1))
         return _gmail_web_inbox_text(limit, unread_only=unread_only,
-                                     mark_read=True)
+                                     mark_read=False)
     if a in ("search", "find"):
         if has_imap:
             try:

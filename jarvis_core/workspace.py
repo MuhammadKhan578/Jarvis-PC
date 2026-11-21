@@ -30,7 +30,7 @@ _WRITE_ACTIONS = {"send", "create", "comment", "append", "update", "post"}
 def _http(method: str, url: str, headers: dict | None = None,
           payload: dict | None = None, timeout: int = 25) -> tuple[int, str, dict]:
     body = None
-    hdrs = {"User-Agent": "Jarvis/2.2 (+local assistant)", "Accept": "application/json"}
+    hdrs = {"User-Agent": "Jarvis/2.3 (+local assistant)", "Accept": "application/json"}
     hdrs.update(headers or {})
     if payload is not None:
         body = json.dumps(payload).encode("utf-8")
@@ -118,7 +118,15 @@ def _save_cfg(service: str, data: dict):
 
 
 def _token(service: str) -> str:
-    return str(_cfg(service).get("token") or "").strip()
+    cfg = _cfg(service)
+    raw = str(cfg.get("token") or "").strip()
+    token = core.unprotect_secret(raw).strip()
+    # Transparently upgrade plaintext v2.2 credentials after the first read.
+    if raw and token and not raw.startswith(("dpapi:", "b64:")):
+        migrated = dict(cfg)
+        migrated["token"] = core.protect_secret(token, f"jarvis-{service}")
+        _save_cfg(service, migrated)
+    return token
 
 
 def status_text() -> str:
@@ -158,7 +166,7 @@ def _configure(service: str, token: str, url: str, email: str, repo: str,
         return "Unknown service. Use github, slack, notion, linear or jira."
     cfg = dict(_cfg(name))
     if token:
-        cfg["token"] = token.strip()
+        cfg["token"] = core.protect_secret(token.strip(), f"jarvis-{name}")
     if url:
         cfg["url"] = url.strip().rstrip("/")
     if email:
@@ -203,29 +211,64 @@ def _github(action: str, query: str, title: str, body: str, number: str,
     h = _gh_headers(token)
     num = re.sub(r"[^0-9]", "", number or query or "")
 
-    if action in ("list", "read", "search"):
+    if action in ("list", "read", "search", "summarize", "draft_reply",
+                  "prs", "pull_requests", "pulls"):
+        if action in ("prs", "pull_requests", "pulls") and not num:
+            st, text, _ = _http("GET", f"{base}/pulls?state=open&per_page=15", h)
+            items = _json(text) or []
+            if st != 200:
+                return _api_error("GitHub", st, text)
+            if not items:
+                return f"No open pull requests in {repo}."
+            return "Open pull requests in " + repo + ":\n" + "\n".join(
+                f"#{it.get('number')} {it.get('title')} ({it.get('user', {}).get('login')}, "
+                f"{it.get('head', {}).get('ref')} -> {it.get('base', {}).get('ref')})"
+                for it in items[:15])
+
         if num and action != "search":
             st, text, _ = _http("GET", f"{base}/issues/{num}", h)
             if st != 200:
                 return _api_error("GitHub", st, text)
             issue = _json(text) or {}
-            head = (f"#{issue.get('number')} {issue.get('title')}\n"
+            is_pr = bool(issue.get("pull_request"))
+            head = (f"#{issue.get('number')} [{'PR' if is_pr else 'issue'}] {issue.get('title')}\n"
                     f"State: {issue.get('state')} | by {issue.get('user', {}).get('login')} | "
                     f"{issue.get('comments', 0)} comments\n{issue.get('html_url')}\n\n"
                     f"{core.truncate(issue.get('body') or '(no description)', 4000)}")
-            if action in ("summarize", "draft_reply"):
-                pass
-            st2, text2, _ = _http("GET", f"{base}/issues/{num}/comments?per_page=30", h)
+            if is_pr:
+                stp, textp, _ = _http("GET", f"{base}/pulls/{num}", h)
+                pr = _json(textp) or {}
+                if stp == 200:
+                    head += (f"\n\nPR details: {pr.get('commits', 0)} commits, "
+                             f"+{pr.get('additions', 0)}/-{pr.get('deletions', 0)}, "
+                             f"{pr.get('changed_files', 0)} files, mergeable={pr.get('mergeable')}")
+            _, text2, _ = _http("GET", f"{base}/issues/{num}/comments?per_page=30", h)
             comments = _json(text2) or []
+            if not isinstance(comments, list):
+                comments = []
+            if is_pr:
+                _, reviews_text, _ = _http("GET", f"{base}/pulls/{num}/reviews?per_page=30", h)
+                reviews = _json(reviews_text) or []
+                if not isinstance(reviews, list):
+                    reviews = []
+                for review in reviews:
+                    if isinstance(review, dict) and (review.get("body") or review.get("state")):
+                        comments.append({
+                            "user": review.get("user") or {},
+                            "body": f"[review {review.get('state', '')}] {review.get('body') or ''}",
+                        })
             thread = "\n\n".join(
                 f"{c.get('user', {}).get('login', 'user')}: {c.get('body', '')}" for c in comments
                 if isinstance(c, dict))
+            material = head + ("\n\nThread:\n" + thread if thread else "")
             if action == "draft_reply":
-                return _draft_reply("GitHub issue thread", head + "\n\n" + thread)
+                return _draft_reply("GitHub pull-request thread" if is_pr else "GitHub issue thread",
+                                    material)
             if action == "summarize":
-                return _summarise("GitHub issue thread", head + "\n\n" + thread)
+                return _summarise("GitHub pull-request thread" if is_pr else "GitHub issue thread",
+                                  material)
             if thread:
-                head += "\n\nRecent comments:\n" + core.truncate(thread, 2500)
+                head += "\n\nRecent comments/reviews:\n" + core.truncate(thread, 3000)
             return head
 
         if action == "search" or query:
@@ -241,25 +284,27 @@ def _github(action: str, query: str, title: str, body: str, number: str,
             items = data.get("items") or []
             if not items:
                 return f"No GitHub issues matched '{query}' in {repo}."
-            out = [f"{len(items)} result(s) in {repo}:"]
-            for it in items[:10]:
-                kind = "PR" if it.get("pull_request") else "issue"
-                out.append(f"#{it.get('number')} [{kind}] {it.get('title')} "
-                           f"({it.get('state')}, {it.get('user', {}).get('login')})")
-            return "\n".join(out)
+        else:
+            st, text, _ = _http("GET", f"{base}/issues?state=open&per_page=15", h)
+            items = _json(text) or []
+            if st != 200:
+                return _api_error("GitHub", st, text)
+            if not items:
+                return f"No open issues or pull requests in {repo}."
 
-        st, text, _ = _http("GET", f"{base}/issues?state=open&per_page=15", h)
-        items = _json(text) or []
-        if st != 200:
-            return _api_error("GitHub", st, text)
-        if not items:
-            return f"No open issues in {repo}."
-        out = [f"Open items in {repo}:"]
+        lines = []
         for it in items[:15]:
             kind = "PR" if it.get("pull_request") else "issue"
-            out.append(f"#{it.get('number')} [{kind}] {it.get('title')} "
-                       f"({it.get('user', {}).get('login')}, {it.get('comments', 0)} comments)")
-        return "\n".join(out)
+            lines.append(f"#{it.get('number')} [{kind}] {it.get('title')} "
+                         f"({it.get('state')}, {it.get('user', {}).get('login')}, "
+                         f"{it.get('comments', 0)} comments)")
+        material = "\n".join(lines)
+        if action == "summarize":
+            return _summarise("GitHub issue and pull-request list", material)
+        if action == "draft_reply":
+            return ("Choose an issue or PR number before drafting a reply.\n" + material)
+        label = f"{len(lines)} result(s) in {repo}:" if action == "search" or query else f"Open items in {repo}:"
+        return label + "\n" + material
 
     if action == "create":
         if not title.strip():
@@ -289,10 +334,7 @@ def _github(action: str, query: str, title: str, body: str, number: str,
             return _api_error("GitHub", st, text)
         return f"Comment posted on #{num}, sir."
 
-    if action in ("summarize", "draft_reply"):
-        return _github("read", query, title, body, num, confirmed)
-
-    return "GitHub actions: list, search, read, summarize, draft_reply, create, comment."
+    return "GitHub actions: list, pull_requests, search, read, summarize, draft_reply, create, comment."
 
 
 # ----------------------------------------------------------------------------- slack
@@ -391,7 +433,7 @@ def _notion_plain(rich) -> str:
 
 def _notion_id(text: str) -> str:
     m = re.search(r"([0-9a-f]{32})", (text or "").replace("-", ""), re.I)
-    return m.group(1) if m else (text or "").strip()
+    return m.group(1) if m else ""
 
 
 def _notion_page_text(token: str, page_id: str) -> tuple[bool, str]:
@@ -410,11 +452,92 @@ def _notion_page_text(token: str, page_id: str) -> tuple[bool, str]:
     return True, "\n".join(lines)
 
 
+def _notion_property_text(prop: dict) -> str:
+    """Compact the common Notion database property types for a readable row."""
+    if not isinstance(prop, dict):
+        return ""
+    kind = str(prop.get("type") or "")
+    value = prop.get(kind)
+    if kind in ("title", "rich_text"):
+        return _notion_plain(value)
+    if kind in ("select", "status"):
+        return str((value or {}).get("name") or "") if isinstance(value, dict) else ""
+    if kind == "multi_select":
+        return ", ".join(str(x.get("name") or "") for x in (value or []) if isinstance(x, dict))
+    if kind in ("number", "checkbox", "url", "email", "phone_number"):
+        return "" if value is None else str(value)
+    if kind == "date" and isinstance(value, dict):
+        return str(value.get("start") or "") + ((" to " + str(value.get("end"))) if value.get("end") else "")
+    if kind in ("created_time", "last_edited_time"):
+        return str(value or "")
+    if kind == "people":
+        return ", ".join(str(x.get("name") or x.get("id") or "") for x in (value or []) if isinstance(x, dict))
+    return ""
+
+
+def _notion_database_rows(token: str, database_id: str) -> tuple[bool, str]:
+    h = _notion_headers(token)
+    st, text, _ = _http("POST", f"https://api.notion.com/v1/databases/{database_id}/query",
+                        h, {"page_size": 25})
+    data = _json(text) or {}
+    if st != 200:
+        return False, _api_error("Notion", st, text)
+    rows = []
+    for page in data.get("results") or []:
+        props = page.get("properties") or {}
+        values = []
+        for name, prop in props.items():
+            value = _notion_property_text(prop)
+            if value:
+                values.append(f"{name}: {value}")
+        rows.append(f"- {' | '.join(values) or '(empty row)'}  id={_notion_id(page.get('id', ''))}")
+    return True, ("Notion database rows:\n" + "\n".join(rows)) if rows else "The Notion database is empty."
+
+
 def _notion(action: str, query: str, title: str, body: str, confirmed: bool) -> str:
     token = _token("notion")
     if not token:
         return "Notion is not configured. Add an integration token and share the page with it."
     h = _notion_headers(token)
+
+    if action in ("database", "query_database", "database_rows", "rows"):
+        database_id = _notion_id(query)
+        if not database_id:
+            return "Give me the Notion database id to query."
+        ok, result = _notion_database_rows(token, database_id)
+        return result
+
+    if action in ("create_record", "database_create", "add_record"):
+        database_id = _notion_id(query)
+        if not database_id or not title.strip():
+            return "Give me the Notion database id and a title for the new record."
+        msg = core.guard("workspace:notion:create_record", confirmed,
+                         f"Create a record '{title}' in Notion database {database_id}")
+        if msg:
+            return msg
+        st0, schema_text, _ = _http("GET", f"https://api.notion.com/v1/databases/{database_id}", h)
+        schema = _json(schema_text) or {}
+        if st0 != 200:
+            return _api_error("Notion", st0, schema_text)
+        title_prop = next((name for name, prop in (schema.get("properties") or {}).items()
+                           if isinstance(prop, dict) and prop.get("type") == "title"), "Name")
+        payload = {
+            "parent": {"database_id": database_id},
+            "properties": {
+                title_prop: {"title": [{"type": "text", "text": {"content": title[:1900]}}]},
+            },
+        }
+        if body.strip():
+            payload["children"] = [{
+                "object": "block", "type": "paragraph",
+                "paragraph": {"rich_text": [{"type": "text", "text": {"content": body[:1900]}}]},
+            }]
+        st, text, _ = _http("POST", "https://api.notion.com/v1/pages", h, payload)
+        data = _json(text) or {}
+        if st not in (200, 201):
+            return _api_error("Notion", st, text)
+        core.audit("workspace_operation", "notion:create_record", str(data.get("id", "")))
+        return f"Notion database record created: {data.get('url') or data.get('id')}"
 
     if action == "search":
         st, text, _ = _http("POST", "https://api.notion.com/v1/search", h,
@@ -505,7 +628,8 @@ def _notion(action: str, query: str, title: str, body: str, confirmed: bool) -> 
             return _api_error("Notion", st, text)
         return "Comment added to the Notion page, sir."
 
-    return "Notion actions: search, read, summarize, create, append, comment."
+    return ("Notion actions: search, read, summarize, database, create, create_record, "
+            "append, comment.")
 
 
 # ---------------------------------------------------------------------------- linear
@@ -535,6 +659,45 @@ def _linear(action: str, query: str, title: str, body: str, confirmed: bool) -> 
       }
     }"""
     if action in ("list", "read", "search", "summarize", "draft_reply"):
+        ident = (query or "").strip().upper()
+        if action != "search" and re.fullmatch(r"[A-Z][A-Z0-9]+-\d+", ident):
+            ok, found = _linear_graphql(
+                token,
+                "query Find($term: String!) { issueSearch(query: $term, first: 5) "
+                "{ nodes { id identifier } } }", {"term": ident})
+            if not ok:
+                return str(found)
+            matches = ((found.get("issueSearch") or {}).get("nodes") or [])
+            hit = next((x for x in matches if x.get("identifier") == ident), None)
+            if not hit:
+                return f"I could not find Linear issue {ident}."
+            detail_query = """
+            query Detail($id: String!) {
+              issue(id: $id) {
+                identifier title description url
+                state { name } assignee { name }
+                comments { nodes { body user { name } createdAt } }
+              }
+            }"""
+            ok, detail = _linear_graphql(token, detail_query, {"id": hit["id"]})
+            if not ok:
+                return str(detail)
+            issue = detail.get("issue") or {}
+            comments = ((issue.get("comments") or {}).get("nodes") or [])
+            thread = "\n".join(
+                f"{(c.get('user') or {}).get('name') or 'user'}: {c.get('body') or ''}"
+                for c in comments if isinstance(c, dict))
+            material = (
+                f"{issue.get('identifier')} [{(issue.get('state') or {}).get('name')}] "
+                f"{issue.get('title')}\nAssignee: {(issue.get('assignee') or {}).get('name') or 'unassigned'}\n"
+                f"{issue.get('url') or ''}\n\n{issue.get('description') or '(no description)'}"
+                + ("\n\nComments:\n" + thread if thread else "")
+            )
+            if action == "summarize":
+                return _summarise("Linear issue", material)
+            if action == "draft_reply":
+                return _draft_reply("Linear issue", material)
+            return material
         ok, data = _linear_graphql(token, gql_issues, {"first": 20})
         if not ok:
             return str(data)
@@ -610,7 +773,7 @@ def _linear(action: str, query: str, title: str, body: str, confirmed: bool) -> 
 # ------------------------------------------------------------------------------ jira
 def _jira_headers() -> dict:
     cfg = _cfg("jira")
-    raw = f"{cfg.get('email')}:{cfg.get('token')}".encode("utf-8")
+    raw = f"{cfg.get('email')}:{_token('jira')}".encode("utf-8")
     return {
         "Authorization": "Basic " + base64.b64encode(raw).decode("ascii"),
         "Accept": "application/json",
@@ -627,6 +790,19 @@ def _adf(text: str) -> dict:
     return {"type": "doc", "version": 1, "content": paragraphs or [{"type": "paragraph", "content": []}]}
 
 
+def _adf_text(node) -> str:
+    """Flatten Jira Atlassian Document Format into readable text."""
+    if isinstance(node, str):
+        return node
+    if isinstance(node, list):
+        return "\n".join(x for x in (_adf_text(v) for v in node) if x)
+    if not isinstance(node, dict):
+        return ""
+    own = str(node.get("text") or "")
+    children = _adf_text(node.get("content") or [])
+    return " ".join(x for x in (own, children) if x).strip()
+
+
 def _jira_base() -> str:
     return str(_cfg("jira").get("url") or "").rstrip("/")
 
@@ -640,11 +816,40 @@ def _jira(action: str, query: str, title: str, body: str, confirmed: bool) -> st
     h = _jira_headers()
 
     if action in ("list", "read", "search", "summarize", "draft_reply"):
+        issue_key = (query or "").strip().upper()
+        if action != "search" and re.fullmatch(r"[A-Z][A-Z0-9_]+-\d+", issue_key):
+            fields_q = "summary,status,assignee,reporter,updated,description,comment"
+            st, text, _ = _http(
+                "GET", base + f"/rest/api/3/issue/{issue_key}?" + urllib.parse.urlencode({"fields": fields_q}), h)
+            data = _json(text) or {}
+            if st != 200:
+                return _api_error("Jira", st, text)
+            f = data.get("fields") or {}
+            comments = ((f.get("comment") or {}).get("comments") or [])
+            thread = "\n".join(
+                f"{(c.get('author') or {}).get('displayName') or 'user'}: {_adf_text(c.get('body'))}"
+                for c in comments if isinstance(c, dict))
+            material = (
+                f"{issue_key} [{(f.get('status') or {}).get('name')}] {f.get('summary')}\n"
+                f"Assignee: {(f.get('assignee') or {}).get('displayName') or 'unassigned'} | "
+                f"Reporter: {(f.get('reporter') or {}).get('displayName') or 'unknown'} | "
+                f"Updated: {f.get('updated') or ''}\n\n{_adf_text(f.get('description')) or '(no description)'}"
+                + ("\n\nComments:\n" + thread if thread else "")
+            )
+            if action == "summarize":
+                return _summarise("Jira issue", material)
+            if action == "draft_reply":
+                return _draft_reply("Jira issue", material)
+            return material
         jql = query if (query and re.search(r"\b(ORDER BY|=|~|AND|OR)\b", query, re.I)) else (
             f'text ~ "{query}" ORDER BY updated DESC' if query else "ORDER BY updated DESC")
         url = base + "/rest/api/3/search?" + urllib.parse.urlencode(
             {"jql": jql, "maxResults": 10, "fields": "summary,status,assignee,updated"})
         st, text, _ = _http("GET", url, h)
+        if st in (404, 410):
+            url = base + "/rest/api/3/search/jql?" + urllib.parse.urlencode(
+                {"jql": jql, "maxResults": 10, "fields": "summary,status,assignee,updated"})
+            st, text, _ = _http("GET", url, h)
         data = _json(text) or {}
         if st != 200:
             return _api_error("Jira", st, text)
@@ -710,13 +915,17 @@ def workspace_operation(action: str = "status", service: str = "", query: str = 
     action:
       status      - show which services are connected
       configure   - save credentials for a service (service, token, plus repo/url/email/project/channel)
+      disconnect  - remove one service's locally saved credentials (confirmation required)
       list        - list recent open issues / messages / pages
       search      - search a service (query)
       read        - read one item (GitHub issue number, Notion page id, or list)
       summarize   - summarise a thread, page or issue list
       draft_reply - draft a reply to a thread in the user's style
+      pull_requests- list open GitHub pull requests
+      database    - query rows in a Notion database (query=database id)
       send        - post a Slack message (channel, body)
       create      - create a GitHub/Jira/Linear issue or a Notion page (title, body)
+      create_record- create a Notion database row (query=database id, title, body)
       comment     - comment on a GitHub/Jira/Linear/Notion item (number/query, body)
       append      - append text to a Notion page (query=page id, body)
 
@@ -733,6 +942,19 @@ def workspace_operation(action: str = "status", service: str = "", query: str = 
 
     if a in ("configure", "setup", "connect"):
         return _configure(svc, token, url, email, repo, project, channel)
+
+    if a in ("disconnect", "remove_service", "forget_service"):
+        if svc not in _SERVICES:
+            return "Choose a service to disconnect: github, slack, notion, linear or jira."
+        msg = core.guard("workspace:disconnect", confirmed,
+                         f"Remove the locally saved {svc} connection and credential.")
+        if msg:
+            return msg
+        all_cfg = _all()
+        existed = all_cfg.pop(svc, None)
+        core.save_config({"workspace": all_cfg})
+        core.audit("workspace_operation", "disconnect", svc, risk="high")
+        return f"{svc} disconnected and its local credential removed." if existed else f"{svc} was not configured."
 
     if svc not in _SERVICES:
         return "Choose a service: github, slack, notion, linear or jira."

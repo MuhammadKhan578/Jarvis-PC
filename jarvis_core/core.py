@@ -9,6 +9,7 @@ vision, ...) without duplicating them.
 from __future__ import annotations
 
 import concurrent.futures
+import base64
 import html
 import json
 import os
@@ -60,6 +61,8 @@ CONFIG_DEFAULTS = {
     "research_depth": "standard",
     "email": {},
     "email_send_method": "",
+    "memory_enabled": True,
+    "archive_enabled": True,
 }
 
 
@@ -284,6 +287,47 @@ def save_config(cfg: dict):
 
 def config_get(key, default=None):
     return load_config().get(key, default)
+
+
+def protect_secret(value: str, label: str = "jarvis-secret") -> str:
+    """Protect a credential with the current Windows account.
+
+    DPAPI is available on normal Windows installs through ``pywin32``.  The
+    portable fallback is only obfuscation, but it keeps this module usable in
+    tests and on systems where pywin32 has not been installed yet.  Callers can
+    transparently pass an already protected value.
+    """
+    value = str(value or "")
+    if not value or value.startswith(("dpapi:", "b64:")):
+        return value
+    try:
+        import win32crypt  # type: ignore
+        blob = win32crypt.CryptProtectData(
+            value.encode("utf-8"), str(label or "jarvis-secret"),
+            None, None, None, 0)
+        return "dpapi:" + base64.b64encode(blob).decode("ascii")
+    except Exception:
+        return "b64:" + base64.b64encode(value.encode("utf-8")).decode("ascii")
+
+
+def unprotect_secret(value: str) -> str:
+    """Return plaintext from :func:`protect_secret`, accepting legacy plaintext."""
+    value = str(value or "")
+    if not value:
+        return ""
+    try:
+        if value.startswith("dpapi:"):
+            import win32crypt  # type: ignore
+            blob = base64.b64decode(value.split(":", 1)[1])
+            return win32crypt.CryptUnprotectData(
+                blob, None, None, None, 0)[1].decode("utf-8")
+        if value.startswith("b64:"):
+            return base64.b64decode(value.split(":", 1)[1]).decode("utf-8")
+    except Exception as e:
+        log(f"secret could not be decrypted: {e}")
+        return ""
+    # Migration path for v2.2 configs, which stored work/MCP tokens as text.
+    return value
 
 
 # --------------------------------------------------------------------------
@@ -522,8 +566,35 @@ def guard(tool: str, confirmed: bool, detail: str) -> str | None:
     )
 
 
+_HIGH_RISK_ACTION_RE = re.compile(
+    r"\b(?:delete|remove|erase|wipe|trash|discard|archive|organize|organise|move|rename|"
+    r"mark\s+(?:as\s+)?read|send|submit|post|publish|"
+    r"purchase|buy|order|checkout|pay|payment|transfer|wire|book|reserve|subscribe|"
+    r"unsubscribe|cancel\s+(?:account|subscription|booking|order)|close\s+account|"
+    r"change\s+(?:password|email|plan|subscription)|(?:up|down)grade\s+(?:plan|subscription)|"
+    r"reset|factory\s+reset|shutdown|restart|terminate|kill|empty\s+recycle|"
+    r"bhej\w*|delete\s+karo|hata\w*|kharid\w*|payment\s+karo)\b",
+    re.I,
+)
+
+
+def high_risk_action(*parts) -> bool:
+    """Whether a UI/browser description appears to trigger a real side effect.
+
+    This is intentionally narrower than "any click": navigation and ordinary
+    typing stay hands-free, while send/delete/payment/account actions receive a
+    tool-level confirmation even if a model forgets the prompt policy.
+    """
+    text = " ".join(str(p or "") for p in parts).replace("_", " ").replace("-", " ")
+    return bool(_HIGH_RISK_ACTION_RE.search(text))
+
+
 _DANGEROUS_PS = [
     r"format-volume", r"diskpart", r"\bformat\s+[a-z]:", r"remove-item\s+.*-recurse.*[a-z]:\\?\s*$",
+    r"\bremove-item\b", r"\bmove-item\b", r"\brename-item\b", r"\bclear-content\b",
+    r"\bset-content\b", r"\bout-file\b.*(?:-force|-append)", r"\bcopy-item\b.*-force",
+    r"\bstop-process\b", r"\buninstall-(?:package|module)\b",
+    r"invoke-(?:restmethod|webrequest).*\s-method\s+(?:post|put|patch|delete)\b",
     r"\brd\s+/s\b", r"\bdel\s+/[fsq]\b", r"bcdedit", r"cipher\s+/w", r"\breg\s+delete\b",
     r"vssadmin\s+delete", r"wbadmin\s+delete", r"\btakeown\b", r"icacls\b.*\/reset",
     r"stop-process.*\b(lsass|csrss|winlogon|services)\b", r"set-mppreference.*disable",
@@ -778,4 +849,3 @@ def _hex_mix(color: str, other: str, amount: float) -> str:
         )
     except Exception:
         return color
-

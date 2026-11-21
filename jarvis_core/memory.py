@@ -130,6 +130,8 @@ def _clean_text(text, limit: int = 20000) -> str:
 
 def archive(role: str, text: str, kind: str = "message", tags=None) -> None:
     """Append one message to the permanent archive.  Never trims, never rotates."""
+    if not core.config_get("archive_enabled", True):
+        return
     text = _clean_text(text)
     if not text:
         return
@@ -620,6 +622,8 @@ def _importance(facts: dict, key: str) -> int:
 
 def context_for(query: str = "", limit: int = 6) -> str:
     """Compact memory block injected into every Gemini request."""
+    if not core.config_get("memory_enabled", True):
+        return ""
     try:
         data = _load_raw()
         facts = data.get("facts", {})
@@ -739,9 +743,10 @@ def maybe_learn(user: str, assistant: str):
     """Called after each completed LLM command. Never blocks the main loop."""
     if not user or not assistant:
         return
-    _conversation("user", user)
-    _conversation("assistant", assistant)
-    if not core.config_get("auto_learn", True):
+    if core.config_get("archive_enabled", True):
+        _conversation("user", user)
+        _conversation("assistant", assistant)
+    if not core.config_get("memory_enabled", True) or not core.config_get("auto_learn", True):
         return
     _COUNTER["turns"] += 1
     turns = _COUNTER["turns"]
@@ -853,7 +858,12 @@ def memory_operation(action: str = "overview", key: str = "", value: str = "",
     if a in ("overview", "all", "list"):
         return overview()
     if a in ("forget", "delete", "remove"):
-        return forget_fact(key or query or value)
+        target = key or query or value
+        msg = core.guard("memory_operation:forget", confirmed,
+                         f"Forget the structured memory '{target}'.")
+        if msg:
+            return msg
+        return forget_fact(target)
     if a in ("episode", "log"):
         return add_episode(value or key, category, importance)
     if a in ("recent", "episodes"):

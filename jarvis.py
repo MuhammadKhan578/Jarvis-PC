@@ -94,7 +94,7 @@ VOICE_LOCK = True
 
 LANG_MODE = "both"  # "both" = match the language you speak | "en" = English only | "ur" = Roman Urdu only
 STT_LANG = "en-IN"  # language used to understand your speech (en-IN also understands Roman Urdu words well)
-JARVIS_VERSION = "2.2.0"  # shown in the start-up banner and the HUD title
+JARVIS_VERSION = "2.3.0"  # shown in the start-up banner and the HUD title
 
 # ⚡ MICROPHONE
 #   MIC_MODE "auto"    = Jarvis scans your microphones and uses one that really hears sound (virtual ones are skipped)
@@ -1829,8 +1829,24 @@ def open_youtube(query: str = "") -> str:
     return "Opening YouTube, sir."
 
 
-def youtube_subscribe(channel_name: str) -> str:
+def _legacy_guard(tool: str, confirmed: bool, detail: str):
+    """Apply the v2.3 safety policy to original jarvis.py tools."""
+    try:
+        from jarvis_core import core as safety_core
+        return safety_core.guard(tool, bool(confirmed), detail)
+    except Exception:
+        if confirmed:
+            return None
+        return ("CONFIRMATION REQUIRED: " + detail + " Nothing has been done yet. "
+                "Ask the user and retry with confirmed=true.")
+
+
+def youtube_subscribe(channel_name: str, confirmed: bool = False) -> str:
     """Searches YouTube for a channel and clicks its Subscribe button."""
+    msg = _legacy_guard("youtube_subscribe", confirmed,
+                        f"Subscribe the signed-in YouTube account to '{channel_name}'.")
+    if msg:
+        return msg
     url = ("https://www.youtube.com/results?search_query="
            + urllib.parse.quote(channel_name) + "&sp=EgIQAg%3D%3D")
     webbrowser.open(url)
@@ -1847,8 +1863,13 @@ def play_youtube_video(query: str) -> str:
     return _yt_play(query)
 
 
-def send_whatsapp_message(number_or_name: str, message: str) -> str:
+def send_whatsapp_message(number_or_name: str, message: str,
+                          confirmed: bool = False) -> str:
     """Sends a WhatsApp TEXT message to a phone number OR a saved contact name."""
+    msg = _legacy_guard("send_whatsapp_message", confirmed,
+                        f"Send a WhatsApp message to '{number_or_name}'.")
+    if msg:
+        return msg
     digits = "".join(filter(str.isdigit, number_or_name))
     if len(digits) >= 10:
         encoded_msg = urllib.parse.quote(message)
@@ -1856,7 +1877,8 @@ def send_whatsapp_message(number_or_name: str, message: str) -> str:
         webbrowser.open(url)
         time.sleep(WA_LOAD_WAIT)
         pyautogui.press('enter')
-        return f"Message sent to {digits}."
+        return (f"WhatsApp send action triggered for {digits}. "
+                "Please verify the delivery tick in WhatsApp.")
 
     if WHATSAPP_MODE == "desktop":
         os.system("start whatsapp:")
@@ -1874,10 +1896,12 @@ def send_whatsapp_message(number_or_name: str, message: str) -> str:
     keyboard.write(message, delay=TYPE_DELAY)
     time.sleep(0.2)
     pyautogui.press("enter")
-    return f"Message sent to {number_or_name}."
+    return (f"WhatsApp send action triggered for {number_or_name}. "
+            "Please verify the delivery tick in WhatsApp.")
 
 
-def send_whatsapp_voice(contact_name: str, text_urdu_script: str = "", text_english: str = "") -> str:
+def send_whatsapp_voice(contact_name: str, text_urdu_script: str = "", text_english: str = "",
+                        confirmed: bool = False) -> str:
     """Sends a WhatsApp VOICE MESSAGE to a saved contact, spoken in Jarvis's own voice.
     If the message is Roman Urdu, write it in Urdu script in text_urdu_script; if English, use
     text_english. Fill only one of them."""
@@ -1885,6 +1909,10 @@ def send_whatsapp_voice(contact_name: str, text_urdu_script: str = "", text_engl
     eng = re.sub(r'[*_#`~]', '', text_english or '').strip()
     if not (urdu or eng):
         return "No message text given."
+    msg = _legacy_guard("send_whatsapp_voice", confirmed,
+                        f"Send a WhatsApp voice message to '{contact_name}'.")
+    if msg:
+        return msg
     if _find_cable_device() is None:
         return "VB-CABLE not found, so I cannot record a voice message."
     clean, voice = (urdu, URDU_VOICE) if urdu else (eng, VOICE_NAME)
@@ -1915,13 +1943,19 @@ def send_whatsapp_voice(contact_name: str, text_urdu_script: str = "", text_engl
         return "Voice relay failed while recording."
     if not _find_and_click("the green send (paper plane arrow) button at the right end of the voice recording bar"):
         pyautogui.press("enter")
-    return f"Voice message sent to {contact_name}."
+    return (f"WhatsApp voice-message send action triggered for {contact_name}. "
+            "Please verify it appears in the chat.")
 
 
-def say_in_voice_chat(text_urdu_script: str = "", text_english: str = "") -> str:
+def say_in_voice_chat(text_urdu_script: str = "", text_english: str = "",
+                      confirmed: bool = False) -> str:
     """Speaks out loud in Jarvis's voice INTO the virtual microphone, so teammates in a game, Discord,
     a WhatsApp call or any app hear it. If the message is Roman Urdu, write it in Urdu script in
     text_urdu_script; if English, use text_english. Fill only one of them."""
+    msg = _legacy_guard("say_in_voice_chat", confirmed,
+                        "Transmit this speech into the active voice chat.")
+    if msg:
+        return msg
     return "Said it in voice chat." if relay_voice(text_urdu_script, text_english) else "Voice relay failed."
 
 
@@ -1944,8 +1978,13 @@ def type_text(text: str) -> str:
     return "Typed."
 
 
-def press_keys(keys: str) -> str:
+def press_keys(keys: str, confirmed: bool = False) -> str:
     """Presses a key or shortcut, e.g. 'enter', 'ctrl+t', 'alt+f4', 'win+d'."""
+    if re.search(r"(?:alt\+f4|shift\+delete|ctrl\+enter)", keys or "", re.I):
+        msg = _legacy_guard("press_keys", confirmed,
+                            f"Press {keys}; this shortcut can close, delete or send.")
+        if msg:
+            return msg
     pyautogui.hotkey(*[k.strip() for k in keys.lower().split("+")])
     return f"Pressed {keys}."
 
@@ -1962,16 +2001,29 @@ def get_time() -> str:
     return time.strftime("%A, %d %B %Y, %I:%M %p")
 
 
-def control_screen(task: str, max_steps: int = 12) -> str:
+def control_screen(task: str, max_steps: int = 12, confirmed: bool = False) -> str:
     """Does ANY other on-screen task by looking at the screen and using the mouse and keyboard
     step by step (max_steps up to 30). Use only when the specific tools cannot do the job."""
+    try:
+        from jarvis_core import core as safety_core
+        if safety_core.high_risk_action(task):
+            msg = safety_core.guard("control_screen", confirmed,
+                                    f"Perform this high-impact screen task: {task}")
+            if msg:
+                return msg
+    except Exception:
+        pass
     history = []
+    outcome = "limit"
+    final_reason = ""
     for _ in range(min(max(int(max_steps), 1), 30)):
         if stop_flag.is_set():
             history.append("stopped by the user")
+            outcome = "stopped"
             break
         if _game_active():
             history.append("blocked: a game window is active")
+            outcome = "blocked"
             break
         data = _screen_ask(
             "You are controlling a Windows PC. Task: " + task + ". Actions already done: "
@@ -1983,6 +2035,10 @@ def control_screen(task: str, max_steps: int = 12) -> str:
         )
         act = data.get("action", "done")
         if act == "done":
+            final_reason = str(data.get("reason") or "").strip()
+            outcome = ("failed" if re.search(
+                r"\b(?:impossible|cannot|can't|could not|failed|not found|blocked)\b",
+                final_reason, re.I) else "done")
             break
         try:
             if act in ("click", "double_click"):
@@ -2000,7 +2056,15 @@ def control_screen(task: str, max_steps: int = 12) -> str:
             continue
         history.append(f"{act}: {data.get('reason', '')}")
         time.sleep(0.8)
-    return "Finished: " + "; ".join(history) if history else "Nothing to do."
+    detail = "; ".join(history)
+    if outcome == "done":
+        return "Screen task completed" + ((": " + final_reason) if final_reason else ".") + \
+            ((" Actions: " + detail) if detail else "")
+    if outcome == "limit":
+        return (f"Screen task stopped after the step limit; completion is not confirmed. "
+                f"Actions: {detail or 'none'}")
+    return ("Screen task was not completed" + ((": " + final_reason) if final_reason else ".")
+            + ((" Actions: " + detail) if detail else ""))
 
 
 def control_volume(action: str) -> str:
@@ -2142,13 +2206,22 @@ def _resolve_path(path: str) -> str:
     return path
 
 
-def run_powershell(command: str) -> str:
+def run_powershell(command: str, confirmed: bool = False) -> str:
     """Runs a PowerShell command on this Windows PC and returns its output. Use it for ANY system
     task: create/move/copy files and folders, list files, kill or start processes, wifi, settings,
     installed programs, downloads, etc."""
     low = command.lower()
     if any(b in low for b in _BLOCKED_CMDS):
         return "Blocked: that command is too dangerous."
+    try:
+        from jarvis_core import core as safety_core
+        if safety_core.powershell_is_dangerous(command):
+            msg = safety_core.guard("run_powershell", confirmed,
+                                    "Run a destructive or security-sensitive PowerShell command.")
+            if msg:
+                return msg
+    except Exception:
+        pass
     try:
         r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
                            capture_output=True, text=True, encoding="utf-8", errors="replace",
@@ -2161,9 +2234,20 @@ def run_powershell(command: str) -> str:
         return f"PowerShell error: {e}"
 
 
-def run_python_code(code: str) -> str:
+def run_python_code(code: str, confirmed: bool = False) -> str:
     """Runs Python code on this PC and returns whatever it prints. Use it for calculations, data
     processing, file work, generating files, web requests, etc. Always print() the result."""
+    risky = bool(re.search(
+        r"\b(?:os\.(?:remove|unlink|rmdir|rename|replace|system)|"
+        r"shutil\.(?:rmtree|move)|pathlib\.[\s\S]{0,120}\.(?:unlink|rmdir|rename|replace)|"
+        r"sendmail|send_message|subprocess\.(?:run|Popen|call|check_call)|"
+        r"requests\.(?:post|put|patch|delete)|smtplib\.|winreg\.|ctypes\.windll)\b",
+        code or "", re.I | re.S))
+    if risky:
+        msg = _legacy_guard("run_python_code", confirmed,
+                            "Run Python code that may delete data, send data or invoke a power action.")
+        if msg:
+            return msg
     path = os.path.join(tempfile.gettempdir(), f"jarvis_task_{int(time.time() * 1000)}.py")
     try:
         with open(path, "w", encoding="utf-8") as f:
@@ -2192,11 +2276,17 @@ def read_text_file(path: str) -> str:
         return f"Could not read file: {e}"
 
 
-def write_text_file(path: str, content: str, append: bool = False) -> str:
+def write_text_file(path: str, content: str, append: bool = False,
+                    confirmed: bool = False) -> str:
     """Writes (or appends) text to a file silently, without opening any app.
     Relative paths mean the Desktop. Creates folders if needed."""
     try:
         p = _resolve_path(path)
+        if os.path.exists(p) and not append:
+            msg = _legacy_guard("write_text_file", confirmed,
+                                f"Overwrite the existing text file '{p}'.")
+            if msg:
+                return msg
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, "a" if append else "w", encoding="utf-8") as f:
             f.write(content)
@@ -2239,8 +2329,18 @@ def get_cursor_position() -> str:
     return _cursor_info("desktop") + f" Active window: {win}."
 
 
-def click_on_screen(description: str, double: bool = False) -> str:
+def click_on_screen(description: str, double: bool = False,
+                    confirmed: bool = False) -> str:
     """Finds a button/icon/link/text on the screen by description and clicks it."""
+    try:
+        from jarvis_core import core as safety_core
+        if safety_core.high_risk_action(description):
+            msg = safety_core.guard("click_on_screen", confirmed,
+                                    f"Click the high-impact screen control '{description}'.")
+            if msg:
+                return msg
+    except Exception:
+        pass
     try:
         if _find_and_click(description, double=bool(double)):
             return f"Clicked {description}."
@@ -2638,9 +2738,14 @@ def remember(key: str, value: str) -> str:
     return f"Remembered: {key} = {mem[key]}"
 
 
-def forget(key: str) -> str:
+def forget(key: str, confirmed: bool = False) -> str:
     """Deletes one saved memory by its key (or 'all' to wipe the whole memory)."""
     key = (key or "").strip()
+    msg = _legacy_guard("forget", confirmed,
+                        "Delete " + ("all legacy memories." if key.lower() == "all"
+                                     else f"the legacy memory '{key}'."))
+    if msg:
+        return msg
     if key.lower() == "all":
         _save_mem({})
         return "All memories deleted."
@@ -2797,8 +2902,12 @@ def research_topic(topic: str) -> str:
 # ==========================================
 # ⚡ 3A-3. VIP PC CONTROL TOOLS
 # ==========================================
-def close_window(title_part: str) -> str:
+def close_window(title_part: str, confirmed: bool = False) -> str:
     """Closes an open window by part of its title."""
+    msg = _legacy_guard("close_window", confirmed,
+                        f"Close the window matching '{title_part}' (unsaved work may be lost).")
+    if msg:
+        return msg
     try:
         wins = [w for w in pyautogui.getAllWindows() if title_part.lower() in (w.title or "").lower()]
         if not wins:
@@ -2849,7 +2958,7 @@ def _recycle_command(p: str) -> str:
             f"[Microsoft.VisualBasic.FileIO.FileSystem]::{call}('{q}','OnlyErrorDialogs','SendToRecycleBin')")
 
 
-def delete_to_recycle_bin(path: str) -> str:
+def delete_to_recycle_bin(path: str, confirmed: bool = False) -> str:
     """Moves a file or folder to the Recycle Bin (safe delete, can be restored)."""
     p = os.path.abspath(_resolve_path(path))
     if not os.path.exists(p):
@@ -2862,6 +2971,10 @@ def delete_to_recycle_bin(path: str) -> str:
     protected = {os.path.abspath(x + "\\" if len(x) == 2 else x).lower().rstrip("\\/") for x in protected}
     if p.lower().rstrip("\\/") in protected:
         return "Blocked: that folder is too important to delete."
+    msg = _legacy_guard("delete_to_recycle_bin", confirmed,
+                        f"Move '{p}' to the Recycle Bin.")
+    if msg:
+        return msg
     try:
         r = subprocess.run(["powershell", "-NoProfile", "-Command", _recycle_command(p)],
                            capture_output=True, text=True, timeout=30)
@@ -2872,7 +2985,7 @@ def delete_to_recycle_bin(path: str) -> str:
         return f"Could not delete: {e}"
 
 
-def power_action(action: str) -> str:
+def power_action(action: str, confirmed: bool = False) -> str:
     """Power actions: 'lock', 'sleep', 'restart' (30s delay), 'shutdown' (30s delay), 'cancel' (stops a pending restart/shutdown)."""
     a = (action or "").lower().strip()
     cmds = {
@@ -2884,8 +2997,17 @@ def power_action(action: str) -> str:
     }
     if a not in cmds:
         return "Unknown power action. Use lock, sleep, restart, shutdown or cancel."
+    if a in ("sleep", "restart", "shutdown"):
+        msg = _legacy_guard("power_action", confirmed,
+                            f"Put the PC into {a} mode" +
+                            (" in 30 seconds." if a in ("restart", "shutdown") else "."))
+        if msg:
+            return msg
     try:
-        subprocess.run(cmds[a], timeout=15)
+        result = subprocess.run(cmds[a], timeout=15, capture_output=True, text=True)
+        if result.returncode != 0:
+            detail = ((result.stderr or "") + " " + (result.stdout or "")).strip()
+            return f"Power action failed ({result.returncode}): {detail[:240]}"
     except Exception as e:
         return f"Power action failed: {e}"
     if a in ("restart", "shutdown"):
@@ -4601,7 +4723,30 @@ def companion_command(low: str) -> bool:
 # 3C. GEMINI CHAT
 # ==========================================
 tools_used = [0]
-INPUT_TOOLS = {"type_text", "press_keys", "click_on_screen", "scroll_screen", "control_screen", "open_browser_tab"}
+INPUT_TOOLS = {"type_text", "press_keys", "click_on_screen", "scroll_screen", "control_screen",
+               "open_browser_tab", "ui_operation"}
+_SECRET_TOOL_FIELDS = {
+    "token", "password", "app_password", "api_key", "secret", "authorization",
+    "access_token", "refresh_token", "client_secret",
+}
+
+
+def _safe_tool_call_text(fn, args, kwargs) -> str:
+    """Render a tool call for the local log without ever printing credentials."""
+    try:
+        bound = inspect.signature(fn).bind_partial(*args, **kwargs)
+        shown = {}
+        for key, value in bound.arguments.items():
+            low = str(key).lower()
+            if low in _SECRET_TOOL_FIELDS or any(piece in low for piece in ("password", "token", "secret", "api_key")):
+                shown[key] = "<redacted>"
+            else:
+                text = repr(value)
+                shown[key] = text if len(text) <= 500 else text[:497] + "..."
+        return repr(shown)
+    except Exception:
+        # Never fall back to repr(args): positional credentials could leak.
+        return "<arguments hidden>"
 
 
 def _wrap_tool(fn):
@@ -4613,7 +4758,7 @@ def _wrap_tool(fn):
             return ("Blocked: a game window is active. I never send mouse/keyboard input into games "
                     "(anti-cheat bans). Tell the user this briefly.")
         tools_used[0] += 1
-        print(f"[Tool]: {fn.__name__} {args or ''} {kwargs or ''}")
+        print(f"[Tool]: {fn.__name__} {_safe_tool_call_text(fn, args, kwargs)}")
         try:
             return fn(*args, **kwargs)
         except pyautogui.FailSafeException:

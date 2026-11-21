@@ -109,8 +109,12 @@ def _browser() -> str:
     try:
         if browser_mod._running():
             return "automation browser running"
-        exe = browser_mod._find_exe("chrome") or browser_mod._find_exe("edge") or browser_mod._find_exe("brave")
-        return f"available ({os.path.basename(exe)})" if exe else "Chrome/Edge/Brave not found"
+        found = []
+        for key in ("brave", "chrome", "edge"):
+            exe = browser_mod._find_exe(key, allow_fallback=False)
+            if exe:
+                found.append(key.title())
+        return "available (" + ", ".join(found) + ")" if found else "Chrome/Edge/Brave not found"
     except Exception as e:
         return f"could not check: {e}"
 
@@ -128,6 +132,23 @@ def _disk() -> str:
         return "; ".join(rows) or "no drives"
     except Exception:
         return "psutil unavailable"
+
+
+def _disk_health() -> tuple[bool, str]:
+    detail = _disk()
+    try:
+        import psutil
+        critical = []
+        for part in psutil.disk_partitions(all=False):
+            try:
+                usage = psutil.disk_usage(part.mountpoint)
+                if usage.free < 2 * 1024 ** 3 or usage.percent >= 97:
+                    critical.append(f"{part.device} {core.human_bytes(usage.free)} free")
+            except Exception:
+                continue
+        return not critical, detail + ((" | LOW: " + ", ".join(critical)) if critical else "")
+    except Exception:
+        return True, detail
 
 
 def run_checks(full: bool = True) -> dict:
@@ -159,7 +180,8 @@ def run_checks(full: bool = True) -> dict:
     add("Microphone", audio["ok"], f"{len(audio['microphones'])} input device(s)")
     add("Speakers", bool(audio["speakers"]), f"{len(audio['speakers'])} output device(s)")
     add("Browser automation", "not found" not in _browser(), _browser())
-    add("Disk", True, _disk())
+    disk_ok, disk_detail = _disk_health()
+    add("Disk", disk_ok, disk_detail)
     try:
         import psutil
         vm = psutil.virtual_memory()

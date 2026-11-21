@@ -33,6 +33,9 @@ If you do not need the built-in mic, you can still use the HUD text box.
 
 ## No microphone / wrong microphone
 
+First open **Settings > Privacy & security > Microphone** and allow desktop apps
+to use the microphone. Windows owns this permission; Jarvis cannot bypass it.
+
 1. Click **`[ SELECT MIC ]`** in the HUD.
 2. Pick the device you actually speak into.
 3. Press **ACTIVATE SELECTED MIC**.
@@ -41,9 +44,10 @@ The choice is saved in `jarvis_settings.json`.
 
 ## No sound / wrong voice
 
-- Install a **male English (India)** voice:
+- Install a local male English voice if you want an offline fallback:
   Settings > Time & language > Speech > Manage voices.
-- Edge TTS needs internet access.
+- The primary voices are Edge TTS **en-GB-RyanNeural** and Urdu male
+  **ur-PK-AsadNeural**; they need internet access.
 - If the online voice is slow, Jarvis may fall back to a local Windows voice.
 
 ## The API key dialog does not appear
@@ -78,14 +82,25 @@ account only has access to newer names.
 - Check that the correct microphone is selected.
 - Background noise and laptop sleep can interrupt listening; restart the HUD.
 
+## Browser automation cannot attach
+
+- Jarvis uses its own persistent browser profile and debugging port. Close the
+  existing automation browser once, then ask Jarvis to open it again.
+- If you explicitly request Brave/Chrome/Edge, that exact browser must be
+  installed; v2.3 does not silently substitute another browser.
+- CAPTCHA, sign-in challenges and redesigned pages may need manual review.
+
 ## Files and memory
 
 Jarvis writes these next to the app:
 
 - `jarvis_memory.json`
+- `jarvis_data/memory_v2.json` and `jarvis_data/archive.jsonl`
+- `jarvis_data/calendar.json`, `schedule.json`, and `missions.json`
 - `jarvis_settings.json`
 - `jarvis_companion.json`
 - `jarvis_data/`, `Jarvis_Documents/`, `Jarvis_Reports/`
 
-They are ignored by git. Delete them to reset Jarvis completely. The API key is
-separate and lives in `%APPDATA%\Jarvis\config.json`.
+They are ignored by git. Prefer the Privacy/Memory controls over manually
+deleting files. The API key is separate, lives in `%APPDATA%\Jarvis\config.json`
+and is DPAPI-protected on Windows.

@@ -20,9 +20,9 @@ import threading
 import time
 import typing
 
-from . import agent, brain, calendar_tools, core, diagnostics, dictation, documents, hud, integrations, mail, mcp, memory, persona, research, resume, tools, voice, workspace
+from . import agent, brain, calendar_tools, core, diagnostics, dictation, documents, hud, integrations, mail, mcp, memory, persona, privacy, research, resume, tools, voice, workspace
 
-__version__ = "3.1"
+__version__ = "3.2"
 
 PROMPT_ADDENDUM = r"""
 ## ULTIMATE CAPABILITIES (added by jarvis_core)
@@ -61,9 +61,9 @@ NEW TOOLS
 - integration_operation(...) — translate, summarise a page/document, ask about a document, daily briefing.
 - email_operation(...) — the only way to read or send email. Sending uses Gmail's own compose
   window in Brave, or SMTP when an account is configured. Reading uses action="inbox"/"unread"/
-  "search"/"read" (Gmail page in Brave when no IMAP account exists). For inbox/unread, the
-  messages that were listed are then marked read in Gmail, as the user asked; search stays
-  read-only. Use action="send" with the full subject and body. Never claim an email was sent
+  "search"/"read" (Gmail page in Brave when no IMAP account exists). Inbox/search/triage and
+  summaries are read-only. action="mark_read" or "organize" changes state only after explicit
+  confirmation. Use action="send" with the full subject and body. Never claim an email was sent
   unless the tool returns "Email sent". Do not open Gmail yourself as a substitute for calling
   the tool. When the user asks "any new email?" or "what is it about?", call
   email_operation(action="unread") first, then summarise only what the tool actually returned.
@@ -88,6 +88,9 @@ NEW TOOLS
   personality and the user's writing voice. When the user says "be more concise",
   "likho meri tarah", "learn my writing", or gives feedback on a draft, use this.
   action="draft" rewrites text in the learned voice.
+- privacy_operation(action="status"|"open_settings"|"set"|"data_locations"|"clear_history", ...) —
+  explain Windows permissions and network use, show all local data, disable learning/archive,
+  or clear local conversation history after confirmation.
 
 HOW TO USE THEM
 1. Prefer ONE strong tool over many small steps. For example, for "make me a report on X and a Word
@@ -143,11 +146,15 @@ memory/schedule. In safe mode the tool returns "CONFIRMATION REQUIRED": ask the 
 sentence and wait for a clear yes. Only then call the same tool again with confirmed=true. Never set
 safe_mode off unless the user explicitly orders it. Everything else (opening apps, reading, browsing,
 creating files, research, typing, normal clicks) runs immediately without asking.
+- A scheduler message beginning [PREAPPROVED SCHEDULED TASK ...] proves the user approved only the
+  exact saved action when creating that routine. Pass confirmed=true for that exact action only;
+  never reuse or broaden the approval. Without that marker, scheduled writes still ask first.
 
 MEMORY
-Every exchange is stored permanently in an append-only archive and cannot be lost through
-normal use. A [LONG-TERM MEMORY] block is injected into each message with relevant facts,
-pins and past conversation. Use it naturally; never recite it verbatim.
+When the user's archive setting is on, exchanges are stored in a local append-only archive.
+When memory is enabled, a [LONG-TERM MEMORY] block is injected with relevant facts, pins and
+past conversation. Respect disabled privacy settings; never claim disabled data was stored.
+Use memory naturally and never recite the context block verbatim.
 - If the user asks "do you remember...", "tumhe yaad hai...", or refers to anything from
   before, call memory_operation(action="recall", query=...) FIRST. Never say you forgot
   without searching.
@@ -929,17 +936,27 @@ def command_hook(user_input: str, g: dict | None = None) -> bool:
     intent = bool(words & {"remind", "reminder", "yaad", "schedule", "scheduled", "alarm", "daily",
                            "roz", "har", "every", "task"})
     has_time = bool(re.search(
-        r"\b(in|after)\s+\d+\s*(sec|second|seconds|min|minute|minutes|hour|hours|ghanta|ghante)\b|"
+        r"\b(in|after|baad)\s+\d+\s*(sec|second|seconds|min|minute|minutes|hour|hours|ghanta|ghante)\b|"
+        r"\b\d+\s*(sec|second|seconds|min|minute|minutes|hour|hours|ghanta|ghante)\s+(baad|later)\b|"
         r"\b(at|ko)\s+\d{1,2}(?::\d{2})?\s*(am|pm)?\b|"
-        r"\b(daily|roz|every\s+day|har\s+roz|every\s+\d+)\b", low))
+        r"\b(daily|roz|every\s+day|har\s+roz|every\s+\d+|"
+        r"(?:every|har|daily|roz)\s+(?:morning|subah|afternoon|dopahar|evening|shaam|night|raat)|"
+        r"(?:every|har|weekly(?:\s+on)?)\s+(?:monday|mon|peer|tuesday|tue|mangal|"
+        r"wednesday|wed|budh|thursday|thu|jumeraat|friday|fri|jumma|saturday|sat|hafta|"
+        r"sunday|sun|itwar))\b", low))
     if intent and has_time:
         parsed = agent.parse_schedule_text(user_input)
         if parsed:
             task = _remove_schedule_phrase(user_input)
             if task:
+                # Let schedule_operation handle high-impact jobs so it can show
+                # the exact recurring action and obtain explicit preapproval.
+                if core.high_risk_action(task):
+                    return False
                 job = agent.add_schedule(parsed["when"], task, kind=parsed.get("kind", "once"),
                                          time_str=parsed.get("time", ""),
                                          interval=parsed.get("interval", 0),
+                                         weekday=parsed.get("weekday", 0),
                                          label=parsed.get("label", ""))
                 when_txt = time.strftime("%A at %I:%M %p", time.localtime(job["when"]))
                 core.say_lang(f"Scheduled, sir. {parsed.get('label','')}, next run {when_txt}: {task}",
@@ -976,6 +993,16 @@ def command_hook(user_input: str, g: dict | None = None) -> bool:
             except Exception as e:
                 core.log(f"diagnostics failed: {e}")
         core.run_bg(_diag)
+        return True
+
+    # privacy / permission reality ---------------------------------------
+    if (words & {"privacy", "permissions", "permission"}) and words & {
+            "status", "show", "what", "kya", "batao", "check", "settings", "data", "open", "kholo"}:
+        if words & {"settings", "microphone", "mic"}:
+            text = privacy.privacy_operation("open_settings", setting="microphone")
+        else:
+            text = privacy.privacy_operation("status")
+        core.say_lang(text, text, text)
         return True
 
     # status --------------------------------------------------------------
@@ -1030,7 +1057,7 @@ __all__ = [
     "install", "start_background", "command_hook", "after_command", "PROMPT_ADDENDUM",
     "TOOLS", "__version__", "core", "memory", "research", "documents", "agent", "hud",
     "integrations", "diagnostics", "tools", "brain", "voice", "mail", "resume",
-    "calendar_tools", "dictation", "workspace", "mcp", "persona",
+    "calendar_tools", "dictation", "workspace", "mcp", "persona", "privacy",
 ]
 
 TOOLS = tools.TOOL_FUNCTIONS

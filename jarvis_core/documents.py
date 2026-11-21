@@ -182,26 +182,27 @@ def create_powerpoint(filename: str, data_json: str) -> str:
     slides = data["slides"][:30]
     if not slides:
         return "No slides given."
-    # title slide
-    first = slides[0]
-    s = prs.slides.add_slide(prs.slide_layouts[0])
-    s.shapes.title.text = str(first.get("title") or "J.A.R.V.I.S.")
-    if len(s.placeholders) > 1:
-        s.placeholders[1].text = str(first.get("subtitle") or time.strftime("%d %B %Y"))
-    for slide in slides[1:]:
-        s = prs.slides.add_slide(prs.slide_layouts[1])
-        s.shapes.title.text = str(slide.get("title") or "")
-        body = s.placeholders[1].text_frame
-        body.clear()
+    for index, slide in enumerate(slides):
         bullets = slide.get("bullets") or []
-        for i, b in enumerate(bullets[:12]):
-            p = body.paragraphs[0] if i == 0 else body.add_paragraph()
-            p.text = str(b)
-            p.level = 0
-            try:
-                p.font.size = Pt(20)
-            except Exception:
-                pass
+        # A first item with bullets is a real content slide, not a title slide.
+        # v2.2 silently discarded those bullets when a one-slide deck was made.
+        title_only = index == 0 and not bullets
+        s = prs.slides.add_slide(prs.slide_layouts[0 if title_only else 1])
+        s.shapes.title.text = str(slide.get("title") or ("J.A.R.V.I.S." if title_only else ""))
+        if title_only:
+            if len(s.placeholders) > 1:
+                s.placeholders[1].text = str(slide.get("subtitle") or time.strftime("%d %B %Y"))
+        else:
+            body = s.placeholders[1].text_frame
+            body.clear()
+            for i, b in enumerate(bullets[:12]):
+                p = body.paragraphs[0] if i == 0 else body.add_paragraph()
+                p.text = str(b)
+                p.level = 0
+                try:
+                    p.font.size = Pt(20)
+                except Exception:
+                    pass
         notes = slide.get("notes")
         if notes:
             try:

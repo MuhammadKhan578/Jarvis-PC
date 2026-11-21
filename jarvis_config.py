@@ -1,7 +1,8 @@
 """Persistent configuration for Jarvis (PC).
 
 The Gemini API key is stored in the current user's config directory, never in
-the project folder and never in source control.
+the project folder and never in source control. On Windows its saved value is
+protected with DPAPI and can only be decrypted by the same Windows account.
 
 Locations
 ---------
@@ -17,6 +18,7 @@ the saved file, which is handy for CI or temporary runs.
 from __future__ import annotations
 
 import json
+import base64
 import os
 import stat
 import sys
@@ -33,6 +35,37 @@ KEY_MIN_LENGTH = 20
 # auth keys. Keep both prefixes here for messages, but validation below only
 # rejects obvious typos so a future format cannot lock users out again.
 KEY_PREFIXES = ("AIza", "AQ.")
+
+
+def _protect_key(value: str) -> str:
+    """Protect the key with Windows DPAPI; portable systems use user-only base64."""
+    value = str(value or "")
+    if not value or value.startswith(("dpapi:", "b64:")):
+        return value
+    if os.name == "nt":
+        try:
+            import win32crypt  # type: ignore
+            blob = win32crypt.CryptProtectData(
+                value.encode("utf-8"), "jarvis-gemini-key", None, None, None, 0)
+            return "dpapi:" + base64.b64encode(blob).decode("ascii")
+        except Exception:
+            pass
+    return "b64:" + base64.b64encode(value.encode("utf-8")).decode("ascii")
+
+
+def _unprotect_key(value: str) -> str:
+    value = str(value or "")
+    try:
+        if value.startswith("dpapi:"):
+            import win32crypt  # type: ignore
+            blob = base64.b64decode(value.split(":", 1)[1])
+            return win32crypt.CryptUnprotectData(
+                blob, None, None, None, 0)[1].decode("utf-8")
+        if value.startswith("b64:"):
+            return base64.b64decode(value.split(":", 1)[1]).decode("utf-8")
+    except Exception:
+        return ""
+    return value  # plaintext v2.2 migration
 
 
 def config_dir() -> Path:
@@ -132,7 +165,11 @@ def is_valid_key(key: str) -> bool:
 def get_saved_api_key() -> str:
     """Return only the key saved in the app config (never the environment)."""
     value = load_config().get("gemini_api_key", "")
-    return normalize_key(str(value or ""))
+    plain = normalize_key(_unprotect_key(str(value or "")))
+    # Upgrade a legacy plaintext key after it has been read successfully.
+    if plain and str(value or "") == plain:
+        save_config(gemini_api_key=_protect_key(plain))
+    return plain
 
 
 def get_api_key() -> str:
@@ -159,7 +196,7 @@ def save_api_key(key: str) -> str:
             "That does not look like a Gemini API key. Paste the whole key "
             "(it starts with AIza or AQ). Create one at " + AI_STUDIO_URL
         )
-    save_config(gemini_api_key=value)
+    save_config(gemini_api_key=_protect_key(value))
     os.environ["GEMINI_API_KEY"] = value
     return value
 

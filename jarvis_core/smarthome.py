@@ -268,6 +268,11 @@ def _load_config() -> dict:
             data.setdefault(key, value)
         if not isinstance(data.get("entities"), dict):
             data["entities"] = {}
+        raw_token = str(data.get("token") or "")
+        data["token"] = core.unprotect_secret(raw_token)
+        if raw_token and data["token"] == raw_token \
+                and not raw_token.startswith(("dpapi:", "b64:")):
+            _save_config(data)  # migrate the v2.2 plaintext token on first read
         return data
 
 
@@ -276,8 +281,12 @@ def _save_config(config: dict) -> None:
         try:
             os.makedirs(core.DATA_DIR, exist_ok=True)
             tmp = _CONFIG_FILE + ".tmp"
+            saved = dict(config or {})
+            if saved.get("token"):
+                saved["token"] = core.protect_secret(
+                    str(saved["token"]), "jarvis-home-assistant")
             with open(tmp, "w", encoding="utf-8") as fh:
-                json.dump(config, fh, indent=2, ensure_ascii=False)
+                json.dump(saved, fh, indent=2, ensure_ascii=False)
             os.replace(tmp, _CONFIG_FILE)
         except Exception as e:
             core.log(f"smarthome config save failed: {e}")
@@ -649,7 +658,7 @@ def _set_fields(dtype: str, did: str, data: dict, action: str, value: str):
         elif action == "status":
             return True, _status_line(dtype, did, data)
         else:
-            return False, f"The light supports on, off, toggle and brightness."
+            return False, "The light supports on, off, toggle and brightness."
     elif dtype == "fans":
         if action == "on":
             data["on"] = True

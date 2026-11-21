@@ -49,7 +49,7 @@ def _expand(path: str) -> str:
     return os.path.expandvars(os.path.expanduser(path))
 
 
-def _find_exe(key: str) -> str | None:
+def _find_exe(key: str, allow_fallback: bool = True) -> str | None:
     key = (key or "chrome").lower().strip()
     fn = core.G.get("_find_browser")
     if fn:
@@ -63,7 +63,9 @@ def _find_exe(key: str) -> str | None:
         p = _expand(raw)
         if os.path.exists(p):
             return p
-    # generic fallbacks
+    if not allow_fallback:
+        return None
+    # Generic fallback is allowed only for an unspecified/default browser.
     for key2 in ("chrome", "edge", "brave"):
         if key2 == key:
             continue
@@ -88,6 +90,18 @@ def _json(path: str, method: str = "get", timeout: float = 3):
 
 def _running() -> bool:
     return _json("/json/version", timeout=1.5) is not None
+
+
+def _running_browser_key() -> str:
+    data = _json("/json/version", timeout=1.5) or {}
+    product = str(data.get("Browser") or "").lower()
+    if "edg" in product:
+        return "edge"
+    if "brave" in product:
+        return "brave"
+    if "chrome" in product or "chromium" in product:
+        return "chrome"
+    return ""
 
 
 def profile_dir() -> str:
@@ -162,16 +176,27 @@ def _browser_processes(key: str = "") -> int:
 
 def ensure_browser(browser_key: str = "") -> str:
     """Start a debug-enabled browser if needed. Returns a status string."""
-    if _running():
-        return "Browser debug port is already available."
-    key = (browser_key or core.G.get("PREFERRED_BROWSER") or "chrome").lower().strip()
+    requested = (browser_key or "").lower().strip()
+    key = (requested or core.G.get("PREFERRED_BROWSER") or "chrome").lower().strip()
     if key not in _BROWSER_PATHS:
         key = "chrome"
-    exe = _find_exe(key)
+    if _running():
+        active = _running_browser_key()
+        # Brave's DevTools product string commonly says "Chrome/...", so that
+        # pair cannot be distinguished here. Edge identifies itself reliably.
+        ambiguous_chromium = {active, key} <= {"chrome", "brave"}
+        if requested and active and active != key and not ambiguous_chromium:
+            return (f"The automation port is currently attached to {active.title()}, not "
+                    f"the requested {key.title()}. Close the automation browser first.")
+        return f"{(active or key).title()} automation is already available."
+    exe = _find_exe(key, allow_fallback=not bool(requested))
     if not exe:
+        if requested:
+            return f"I could not find the requested {key.title()} browser on this PC."
         return "I could not find Chrome, Edge or Brave on this PC."
     if uses_live_profile() and _browser_processes(key):
-        return ("Brave is already open without automation control. Close Brave once, "
+        label = key.title()
+        return (f"{label} is already open without automation control. Close {label} once, "
                 "then ask again; I will reopen it with the automation port and your "
                 "Gmail sign-in intact.")
     profile = profile_dir()
@@ -187,6 +212,8 @@ def ensure_browser(browser_key: str = "") -> str:
         "--start-maximized",
         "about:blank",
     ]
+    if str(os.environ.get("JARVIS_BROWSER_HEADLESS") or "").lower() in ("1", "true", "yes", "on"):
+        args[1:1] = ["--headless=new", "--disable-gpu"]
     try:
         subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception as e:
@@ -394,9 +421,11 @@ def _type(tab: dict, selector: str, text: str, submit: bool = False) -> str:
         "(() => { const el = " + find + ";"
         " if (!el) return 'NOT_FOUND';"
         " el.focus(); el.scrollIntoView({block:'center'});"
-        " const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : (el.tagName === 'INPUT' ? HTMLInputElement.prototype : HTMLElement.prototype);"
-        " const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;"
-        " if (setter) setter.call(el, " + _js_str(text) + "); else el.value = " + _js_str(text) + ";"
+        " const editable = el.isContentEditable;"
+        " const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : (el.tagName === 'INPUT' ? HTMLInputElement.prototype : null);"
+        " const setter = proto && Object.getOwnPropertyDescriptor(proto, 'value')?.set;"
+        " if (editable) el.textContent = " + _js_str(text) + ";"
+        " else if (setter) setter.call(el, " + _js_str(text) + "); else el.value = " + _js_str(text) + ";"
         " el.dispatchEvent(new Event('input', {bubbles:true}));"
         " el.dispatchEvent(new Event('change', {bubbles:true}));"
         " " + ("el.form && el.form.requestSubmit ? el.form.requestSubmit() : el.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));" if submit else "") +
@@ -444,7 +473,7 @@ def _find(tab: dict, text: str) -> str:
 
 def browser_operation(action: str = "status", url: str = "", tab_id: str = "",
                       selector: str = "", text: str = "", script: str = "",
-                      submit: bool = False) -> str:
+                      submit: bool = False, confirmed: bool = False) -> str:
     """Drive a real Chromium browser (Chrome/Edge/Brave) through DevTools.
 
     action:
@@ -457,7 +486,7 @@ def browser_operation(action: str = "status", url: str = "", tab_id: str = "",
       find       - find elements containing text
       click      - click by selector OR by visible text
       type       - type into a field (selector optional; submit=true presses Enter)
-      eval       - run JavaScript and return the result (script)
+      eval       - run JavaScript and return the result (mutating scripts need confirmation)
       screenshot - capture the page
       close      - close a tab
       activate   - bring a tab to the front
@@ -480,6 +509,8 @@ def browser_operation(action: str = "status", url: str = "", tab_id: str = "",
         return ensure_browser(text or selector)
     if a in ("open", "new_tab"):
         msg = ensure_browser(text if text in _BROWSER_PATHS else "")
+        if any(x in msg.lower() for x in ("could not", "did not", "not the requested", "close ")):
+            return msg
         tab = _new_tab(url or "about:blank")
         if not tab:
             return msg + " But I could not create a tab."
@@ -525,12 +556,40 @@ def browser_operation(action: str = "status", url: str = "", tab_id: str = "",
         if a in ("find", "search"):
             return _find(tab, text or selector)
         if a in ("click", "press"):
+            page = str(tab.get("url") or "")
+            checkout_confirm = bool(
+                re.search(r"/(?:checkout|payment|billing|transfer|purchase|order)(?:/|\?|$)",
+                          page, re.I)
+                and re.search(r"\b(?:confirm|complete|finish|place|continue)\b",
+                              " ".join((text or "", selector or "")), re.I))
+            if core.high_risk_action(text, selector) or checkout_confirm:
+                msg = core.guard("browser_operation:click", confirmed,
+                                 f"Click the high-impact browser control '{text or selector}'.")
+                if msg:
+                    return msg
             return _click(tab, selector, text)
         if a in ("type", "fill"):
+            page = str(tab.get("url") or "")
+            if submit and (core.high_risk_action(selector)
+                           or re.search(r"/(?:checkout|payment|billing|transfer|purchase|order)(?:/|\?|$)",
+                                        page, re.I)):
+                msg = core.guard("browser_operation:submit", confirmed,
+                                 f"Submit a form on {page or 'the current page'}.")
+                if msg:
+                    return msg
             return _type(tab, selector, text, submit)
         if a in ("eval", "js", "script"):
             if not script:
                 return "No script given."
+            mutating = bool(re.search(
+                r"\.(?:click|submit|requestSubmit|remove|deleteRow|setAttribute)\s*\(|"
+                r"\b(?:fetch|XMLHttpRequest|localStorage\.setItem|document\.cookie\s*=)",
+                script, re.I))
+            if mutating:
+                msg = core.guard("browser_operation:eval", confirmed,
+                                 "Run JavaScript that can change a page or trigger a network action.")
+                if msg:
+                    return msg
             res = _eval(tab, script)
             return json.dumps(res, ensure_ascii=False, indent=2)[:8000] if not isinstance(res, str) else res[:8000]
         if a in ("screenshot", "shot"):

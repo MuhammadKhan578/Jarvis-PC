@@ -30,7 +30,7 @@ LOG_FILE = os.path.join(APP_DIR, "jarvis_app.log")
 AI_STUDIO_URL = getattr(jcfg, "AI_STUDIO_URL", "https://aistudio.google.com/app/apikey")
 
 PREFERRED_MIC = ""
-VERSION = "2.2.0"
+VERSION = "2.3.0"
 
 # ---------- STARK HUD COLOR PALETTE ----------
 BG = "#030712"
@@ -884,7 +884,7 @@ class App:
         win.after(120, refresh)
 
     def open_assistant_hub(self):
-        """One place for the 2.2 assistant features: dictation, calendar, work tools, MCP, persona."""
+        """One place for dictation, calendar, routines, work tools, MCP and privacy."""
         K = self.K
         win = tk.Toplevel(self.root)
         win.title(f"J.A.R.V.I.S. // ASSISTANT HUB // v{VERSION}")
@@ -894,7 +894,7 @@ class App:
 
         head = tk.Frame(win, bg=PANEL, highlightthickness=1, highlightbackground=PANEL_BORDER)
         head.pack(fill="x", padx=10, pady=(10, 6))
-        tk.Label(head, text="ASSISTANT HUB // DICTATION · CALENDAR · WORK · MCP", bg=PANEL,
+        tk.Label(head, text="ASSISTANT HUB // VOICE · ROUTINES · WORK · MCP · PRIVACY", bg=PANEL,
                  fg=CYAN_GLOW, font=("Consolas", 10, "bold")).pack(side="left", padx=12, pady=8)
         tk.Label(head, text="LOCAL FIRST", bg=PANEL, fg=TEXT_DIM,
                  font=("Consolas", 8)).pack(side="right", padx=12)
@@ -918,8 +918,10 @@ class App:
         def refresh():
             lines = []
             try:
-                from jarvis_core import calendar_tools, dictation as jdict, mcp as jmcp
-                from jarvis_core import persona as jpersona, workspace as jworkspace
+                from jarvis_core import agent as jagent, calendar_tools, dictation as jdict
+                from jarvis_core import integrations as jint, mcp as jmcp
+                from jarvis_core import persona as jpersona, privacy as jprivacy
+                from jarvis_core import workspace as jworkspace
                 lines.append("DICTATION")
                 lines.append(jdict.status())
                 lines.append("")
@@ -929,11 +931,21 @@ class App:
                 lines.append("CALENDAR (next 7 days)")
                 lines.append(calendar_tools.upcoming(7))
                 lines.append("")
+                lines.append("ROUTINES")
+                lines.append(jagent.schedule_operation("list"))
+                lines.append("")
+                lines.append("EMAIL")
+                lines.append(jint.email_status())
+                lines.append("")
                 lines.append("WORK TOOLS")
                 lines.append(jworkspace.status_text())
                 lines.append("")
                 lines.append("MCP")
                 lines.append(jmcp.mcp_operation("status"))
+                lines.append("")
+                lines.append("PRIVACY")
+                pcfg = jprivacy.privacy_status().splitlines()
+                lines.extend(pcfg[1:6] if len(pcfg) > 1 else pcfg)
             except Exception as e:
                 lines.append("Hub could not load every module:\n" + str(e))
             show("\n".join(lines))
@@ -966,6 +978,20 @@ class App:
             except Exception as e:
                 show("MCP error:\n\n" + str(e))
 
+        def show_routines():
+            try:
+                from jarvis_core import agent as jagent
+                show(jagent.schedule_operation("list"))
+            except Exception as e:
+                show("Routine error:\n\n" + str(e))
+
+        def show_privacy():
+            try:
+                from jarvis_core import privacy
+                show(privacy.privacy_operation("status"))
+            except Exception as e:
+                show("Privacy error:\n\n" + str(e))
+
         btns = tk.Frame(win, bg=BG)
         btns.pack(fill="x", padx=10, pady=(2, 10))
 
@@ -982,6 +1008,19 @@ class App:
         mkbtn("[ MCP CONFIG ]", mcp_config).pack(side="left", padx=3)
         mkbtn("[ REFRESH ]", refresh).pack(side="left", padx=3)
         mkbtn("[ CLOSE ]", win.destroy).pack(side="right", padx=3)
+
+        btns2 = tk.Frame(win, bg=BG)
+        btns2.pack(fill="x", padx=10, pady=(0, 10))
+
+        def mkbtn2(text, cmd):
+            return tk.Button(btns2, text=text, command=cmd, bg="#081422", fg=TEXT_MAIN,
+                             activebackground="#0e243b", activeforeground=CYAN_GLOW,
+                             relief="flat", bd=0, padx=9, pady=6,
+                             font=("Consolas", 9, "bold"), cursor="hand2",
+                             highlightthickness=1, highlightbackground="#133654")
+
+        mkbtn2("[ ROUTINES ]", show_routines).pack(side="left", padx=3)
+        mkbtn2("[ PRIVACY ]", show_privacy).pack(side="left", padx=3)
 
         win.after(120, refresh)
 

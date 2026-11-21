@@ -1,4 +1,4 @@
-"""Model Context Protocol (MCP) support for Jarvis 2.2.
+"""Model Context Protocol (MCP) support for Jarvis 2.3.
 
 Two halves:
 
@@ -23,7 +23,7 @@ from . import core
 
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "jarvis-memory"
-SERVER_VERSION = "2.2.0"
+SERVER_VERSION = "2.3.0"
 
 # --------------------------------------------------------------------------- server
 _SERVER_TOOLS = [
@@ -76,6 +76,31 @@ _SERVER_TOOLS = [
         "description": "Show which work services (GitHub, Slack, Notion, Linear, Jira) are connected.",
         "inputSchema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "jarvis_workspace_query",
+        "description": ("Read/search/summarize a connected GitHub, Slack, Notion, Linear or Jira "
+                        "workspace. This MCP tool is read-only and cannot post or change anything."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "service": {"type": "string", "enum": ["github", "slack", "notion", "linear", "jira"]},
+                "action": {"type": "string", "enum": ["list", "read", "search", "summarize", "draft_reply", "pull_requests", "database"]},
+                "query": {"type": "string", "default": ""},
+                "number": {"type": "string", "default": ""},
+                "channel": {"type": "string", "default": ""},
+            },
+            "required": ["service", "action"],
+        },
+    },
+    {
+        "name": "jarvis_research_quick",
+        "description": "Research a current question on the web and return a short answer with sources.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"question": {"type": "string"}},
+            "required": ["question"],
+        },
+    },
 ]
 
 
@@ -88,7 +113,7 @@ def _stderr(text: str):
 
 
 def _server_call(name: str, args: dict) -> str:
-    from . import calendar_tools, memory, persona, workspace
+    from . import calendar_tools, memory, persona, research, workspace
 
     args = args or {}
     if name == "jarvis_memory_search":
@@ -110,6 +135,24 @@ def _server_call(name: str, args: dict) -> str:
         return persona.persona_operation("show")
     if name == "jarvis_workspace_status":
         return workspace.status_text()
+    if name == "jarvis_workspace_query":
+        action = str(args.get("action") or "list").strip().lower()
+        allowed = {"list", "read", "search", "summarize", "draft_reply",
+                   "pull_requests", "database"}
+        if action not in allowed:
+            raise ValueError("workspace query is read-only")
+        return workspace.workspace_operation(
+            action=action,
+            service=str(args.get("service") or ""),
+            query=str(args.get("query") or ""),
+            number=str(args.get("number") or ""),
+            channel=str(args.get("channel") or ""),
+        )
+    if name == "jarvis_research_quick":
+        question = str(args.get("question") or "").strip()
+        if not question:
+            raise ValueError("question is required")
+        return research.quick_research(question)
     raise ValueError("unknown tool: " + name)
 
 
@@ -223,7 +266,18 @@ def server_config(server_path: str = "") -> str:
 # --------------------------------------------------------------------------- client
 def _servers() -> dict:
     raw = core.config_get("mcp_servers", {}) or {}
-    return raw if isinstance(raw, dict) else {}
+    if not isinstance(raw, dict):
+        return {}
+    out = {str(name): dict(cfg) for name, cfg in raw.items() if isinstance(cfg, dict)}
+    changed = False
+    for name, cfg in out.items():
+        token = str(cfg.get("token") or "")
+        if token and not token.startswith(("dpapi:", "b64:")):
+            cfg["token"] = core.protect_secret(token, f"jarvis-mcp-{name}")
+            changed = True
+    if changed:
+        core.save_config({"mcp_servers": out})
+    return out
 
 
 def _save_servers(data: dict):
@@ -259,7 +313,7 @@ def _post(url: str, token: str, message: dict, session: str = "",
         "Content-Type": "application/json",
         "Accept": "application/json, text/event-stream",
         "MCP-Protocol-Version": PROTOCOL_VERSION,
-        "User-Agent": "Jarvis-MCP-Client/2.2",
+        "User-Agent": "Jarvis-MCP-Client/2.3",
     }
     if token:
         headers["Authorization"] = "Bearer " + token
@@ -291,7 +345,7 @@ def _session_header(headers: dict) -> str:
 def _rpc(server: str, method: str, params: dict | None = None, call_id: int = 2) -> dict:
     cfg = _servers().get(server) or {}
     url = str(cfg.get("url") or "").strip()
-    token = str(cfg.get("token") or "").strip()
+    token = core.unprotect_secret(str(cfg.get("token") or "")).strip()
     if not url:
         raise RuntimeError(f"MCP server '{server}' is not configured.")
 
@@ -380,7 +434,7 @@ def mcp_operation(action: str = "status", server: str = "", tool: str = "",
         servers = _servers()
         entry = {"url": url.strip()}
         if token:
-            entry["token"] = token.strip()
+            entry["token"] = core.protect_secret(token.strip(), f"jarvis-mcp-{name}")
         elif (servers.get(name) or {}).get("token"):
             entry["token"] = servers[name]["token"]
         servers[name] = entry
@@ -430,6 +484,11 @@ def mcp_operation(action: str = "status", server: str = "", tool: str = "",
                     return "arguments must be a JSON object string, e.g. {\"query\":\"x\"}."
                 if not isinstance(args, dict):
                     return "arguments must be a JSON object."
+            if core.high_risk_action(tool, args.get("action"), args.get("operation")):
+                msg = core.guard("mcp_operation:call", confirmed,
+                                 f"Call remote MCP tool '{tool}' with a potentially high-impact action.")
+                if msg:
+                    return msg
             result = _rpc(name, "tools/call", {"name": tool, "arguments": args})
             content = result.get("content") or []
             pieces = [str(c.get("text") or "") for c in content if isinstance(c, dict)]

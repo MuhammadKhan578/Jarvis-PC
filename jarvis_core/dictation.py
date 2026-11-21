@@ -37,6 +37,9 @@ _STATE = {
     "utterances": 0,
     "hotkey": "ctrl+alt+v",
     "error": "",
+    "last_latency_ms": 0,
+    "latency_total_ms": 0,
+    "latency_samples": 0,
 }
 
 
@@ -173,11 +176,19 @@ def status() -> str:
     st = _STATE
     if st["running"]:
         seconds = int(time.time() - st["started"])
+        average = int(st["latency_total_ms"] / st["latency_samples"]) \
+            if st["latency_samples"] else 0
+        latency = (f", recognition {st['last_latency_ms']} ms last / {average} ms average"
+                   if average else "")
         return (f"Dictation is ON ({seconds}s, {st['utterances']} phrases, "
-                f"{len(st['buffer'])} characters). Hotkey: {st['hotkey']}.")
+                f"{len(st['buffer'])} characters{latency}). Hotkey: {st['hotkey']}.")
+    average = int(st["latency_total_ms"] / st["latency_samples"]) \
+        if st["latency_samples"] else 0
+    timing = (f" Last recognition: {st['last_latency_ms']} ms; session average: {average} ms."
+              if average else "")
     if st["error"]:
-        return "Dictation is off. Last error: " + st["error"]
-    return f"Dictation is off. Press {st['hotkey']} or say 'start dictation'."
+        return "Dictation is off. Last error: " + st["error"] + timing
+    return f"Dictation is off. Press {st['hotkey']} or say 'start dictation'." + timing
 
 
 def start() -> str:
@@ -185,7 +196,8 @@ def start() -> str:
         if _STATE["running"]:
             return status()
         _STATE.update({"running": True, "buffer": "", "started": time.time(),
-                       "utterances": 0, "error": ""})
+                       "utterances": 0, "error": "", "last_latency_ms": 0,
+                       "latency_total_ms": 0, "latency_samples": 0})
         thread = threading.Thread(target=_worker, name="jarvis-dictation", daemon=True)
         _STATE["thread"] = thread
         thread.start()
@@ -248,6 +260,7 @@ def _worker():
                     break
                 recognizer = g.get("_recognize_speech")
                 text = ""
+                recognition_started = time.perf_counter()
                 try:
                     if callable(recognizer):
                         text = recognizer(rec, audio)[0]
@@ -255,6 +268,10 @@ def _worker():
                         text = rec.recognize_google(audio)
                 except Exception:
                     continue
+                elapsed = max(0, int((time.perf_counter() - recognition_started) * 1000))
+                _STATE["last_latency_ms"] = elapsed
+                _STATE["latency_total_ms"] += elapsed
+                _STATE["latency_samples"] += 1
                 text = (text or "").strip()
                 if not text:
                     continue

@@ -198,8 +198,33 @@ def _vision_click(description: str) -> bool:
         return False
 
 
+def _uia_key_sequence(keys: str) -> str:
+    """Translate human shortcuts (``ctrl+shift+s``) to pywinauto syntax."""
+    parts = [p.strip().lower() for p in re.split(r"\s*\+\s*", keys or "") if p.strip()]
+    if not parts:
+        return "{ENTER}"
+    modifiers = {"ctrl": "^", "control": "^", "alt": "%", "shift": "+"}
+    prefix = "".join(modifiers[p] for p in parts[:-1] if p in modifiers)
+    key = parts[-1]
+    named = {
+        "enter": "{ENTER}", "return": "{ENTER}", "tab": "{TAB}",
+        "escape": "{ESC}", "esc": "{ESC}", "space": "{SPACE}",
+        "backspace": "{BACKSPACE}", "delete": "{DELETE}", "del": "{DELETE}",
+        "home": "{HOME}", "end": "{END}", "pageup": "{PGUP}",
+        "pagedown": "{PGDN}", "up": "{UP}", "down": "{DOWN}",
+        "left": "{LEFT}", "right": "{RIGHT}", "f1": "{F1}", "f2": "{F2}",
+        "f3": "{F3}", "f4": "{F4}", "f5": "{F5}", "f6": "{F6}",
+        "f7": "{F7}", "f8": "{F8}", "f9": "{F9}", "f10": "{F10}",
+        "f11": "{F11}", "f12": "{F12}",
+    }
+    if key in modifiers and len(parts) == 1:
+        return modifiers[key]
+    return prefix + named.get(key, key if len(key) == 1 else "{" + key.upper() + "}")
+
+
 def ui_operation(action: str = "status", window: str = "", control: str = "",
-                 text: str = "", keys: str = "", double: bool = False) -> str:
+                 text: str = "", keys: str = "", double: bool = False,
+                 confirmed: bool = False) -> str:
     """Control Windows apps through real UI Automation (reliable, no guessing).
 
     action:
@@ -234,6 +259,23 @@ def ui_operation(action: str = "status", window: str = "", control: str = "",
         return list_windows_detailed()
     if a in ("controls", "elements", "list_controls"):
         return list_window_controls(window)
+
+    if a == "close":
+        msg = core.guard("ui_operation:close", confirmed,
+                         f"Close the window '{window or 'active window'}' (unsaved work may be lost).")
+        if msg:
+            return msg
+    if a in ("click", "double_click", "menu", "select", "toggle") \
+            and core.high_risk_action(control, text):
+        msg = core.guard("ui_operation:" + a, confirmed,
+                         f"Use the high-impact control '{control or text}' in '{window}'.")
+        if msg:
+            return msg
+    if a == "press" and re.search(r"(?:alt\+f4|shift\+delete|ctrl\+enter)", keys or "", re.I):
+        msg = core.guard("ui_operation:press", confirmed,
+                         f"Press {keys} in '{window}' (this can close, delete or send).")
+        if msg:
+            return msg
 
     if not _uia_available():
         # graceful fallback to the original vision-based tools
@@ -333,7 +375,7 @@ def ui_operation(action: str = "status", window: str = "", control: str = "",
         if a == "press":
             win.set_focus()
             time.sleep(0.2)
-            win.type_keys(keys or "enter", with_spaces=True)
+            win.type_keys(_uia_key_sequence(keys or "enter"), with_spaces=True)
             return f"Pressed {keys or 'enter'} in {win.window_text()}."
         if a == "read":
             texts = []
@@ -443,7 +485,7 @@ def file_operation(action: str = "list", path: str = "", destination: str = "",
       mkdir        - create a folder
       copy         - copy a file/folder to destination
       move         - move a file/folder to destination (confirmed=true)
-      rename       - rename to destination (new name)
+      rename       - rename to destination (new name, confirmed=true)
       delete       - move to the Recycle Bin (confirmed=true)
       organize     - sort files into category folders (confirmed=true)
       batch_rename - replace query with content in file names (confirmed=true)
@@ -454,7 +496,7 @@ def file_operation(action: str = "list", path: str = "", destination: str = "",
       recent       - recently modified files (days)
       download     - download a URL (path = url, destination = filename)
       open         - open with the default app
-      read / write / append - text files
+      read / write / append - text files (overwriting an existing file asks first)
       exists       - check existence
       tree         - folder tree (3 levels)
     """
@@ -554,6 +596,10 @@ def file_operation(action: str = "list", path: str = "", destination: str = "",
             new_name = destination or content
             if not new_name:
                 return "No new name given (use destination)."
+            msg = core.guard("file_operation:rename", confirmed,
+                             f"Rename '{p}' to '{new_name}'.")
+            if msg:
+                return msg
             dest = os.path.join(os.path.dirname(p), os.path.basename(new_name))
             if os.path.exists(dest):
                 return f"Already exists: {dest}"
@@ -568,7 +614,10 @@ def file_operation(action: str = "list", path: str = "", destination: str = "",
                 return f"Not found: {p}"
             fn = core.G.get("delete_to_recycle_bin")
             if fn:
-                return fn(p)
+                try:
+                    return fn(p, confirmed=True)
+                except TypeError:
+                    return fn(p)
             try:
                 import send2trash  # type: ignore
                 send2trash.send2trash(p)
@@ -762,6 +811,11 @@ def file_operation(action: str = "list", path: str = "", destination: str = "",
                 return f"Could not read: {e}"
 
         if a in ("write", "append"):
+            if a == "write" and os.path.exists(p):
+                msg = core.guard("file_operation:overwrite", confirmed,
+                                 f"Overwrite the existing text file '{p}'.")
+                if msg:
+                    return msg
             os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
             with open(p, "a" if a == "append" else "w", encoding="utf-8") as f:
                 f.write(content)
@@ -1072,7 +1126,7 @@ def system_operation(action: str = "info", value: str = "", confirmed: bool = Fa
       startup_apps    - list startup entries
       clean_temp      - delete temp files (confirmed=true)
       recycle_bin     - empty the Recycle Bin (confirmed=true)
-      power           - value lock/sleep/restart/shutdown/cancel (confirmed=true for restart/shutdown)
+      power           - value lock/sleep/restart/shutdown/cancel (confirmed=true for sleep/restart/shutdown)
       setting         - open a Windows Settings page (value = e.g. display, bluetooth, wifi)
       uptime          - how long Windows has been running
       gpu             - graphics card details
@@ -1136,13 +1190,18 @@ def system_operation(action: str = "info", value: str = "", confirmed: bool = Fa
         if a in ("shutdown", "restart", "sleep") and not v:
             v = a
         action_word = v.lower().strip() or "lock"
-        if action_word in ("restart", "shutdown"):
-            msg = core.guard("system_operation:power", confirmed, f"The PC will {action_word} in 30 seconds.")
+        if action_word in ("sleep", "restart", "shutdown"):
+            detail = (f"The PC will {action_word} in 30 seconds."
+                      if action_word in ("restart", "shutdown") else "The PC will go to sleep.")
+            msg = core.guard("system_operation:power", confirmed, detail)
             if msg:
                 return msg
         fn = core.G.get("power_action")
         if fn:
-            return fn(action_word)
+            try:
+                return fn(action_word, confirmed=True)
+            except TypeError:
+                return fn(action_word)
         return f"Unknown power action '{action_word}'."
     if a in ("setting", "settings"):
         page = v or "home"
