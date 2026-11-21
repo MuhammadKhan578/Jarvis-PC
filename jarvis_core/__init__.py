@@ -823,6 +823,18 @@ def command_hook(user_input: str, g: dict | None = None) -> bool:
         core.say_lang(text, text, text)
         return True
 
+    # reel-style editing: "edit this video" / "edit this photo" -----------
+    if (words & {"edit", "trim", "cut", "clean"} and
+            words & {"video", "clip", "reel", "footage"}):
+        text = media_tools.video_operation(action="auto_cut")
+        core.say_lang(text, text, text)
+        return True
+    if (words & {"edit", "enhance", "resize", "crop", "clean"} and
+            words & {"photo", "picture", "image", "pic"}):
+        text = media_tools.image_operation(action="enhance")
+        core.say_lang(text, text, text)
+        return True
+
     # permanent memory: recall ------------------------------------------
     recall_q = ""
     m = re.match(r"^(?:what\s+do\s+you\s+remember(?:\s+about)?|do\s+you\s+remember(?:\s+about)?)"

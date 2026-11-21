@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import jarvis_core
 from jarvis_core import core, games, media_tools, showcase, tools
 
 
@@ -187,6 +188,46 @@ class JarvisReelFeatureTests(unittest.TestCase):
         self.assertIn(" Edited image created", result3)
         with Image.open(self.tmp / "story.png") as image:
             self.assertEqual(image.size, (90, 160))
+
+    def test_no_path_edit_picks_newest_local_media(self):
+        ff = media_tools._ffmpeg()
+        self.assertTrue(ff)
+        try:
+            from PIL import Image
+        except Exception:
+            self.skipTest("Pillow is not installed")
+        folder = self.tmp / "Downloads"
+        folder.mkdir()
+        video = folder / "clip.mp4"
+        subprocess.run(
+            [ff, "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+             "color=c=blue:s=160x120:d=2", "-c:v", "libx264",
+             "-pix_fmt", "yuv420p", str(video)],
+            check=True, timeout=120)
+        photo = folder / "picture.png"
+        Image.new("RGB", (100, 80), "#123456").save(photo)
+        old_folders = media_tools._MEDIA_FOLDERS
+        media_tools._MEDIA_FOLDERS = [str(folder)]
+        try:
+            self.assertIn(str(video), media_tools.video_operation("info"))
+            self.assertIn(str(photo), media_tools.image_operation("info"))
+            edited = media_tools.video_operation("cut", segments="0-0.5")
+            self.assertIn("Edited video created", edited)
+            self.assertTrue((folder / "clip_edited.mp4").exists())
+        finally:
+            media_tools._MEDIA_FOLDERS = old_folders
+
+    def test_natural_edit_this_video_and_photo_commands(self):
+        with mock.patch.object(media_tools, "video_operation",
+                               return_value="video edit ready") as video, \
+                mock.patch.object(media_tools, "image_operation",
+                                  return_value="photo edit ready") as image, \
+                mock.patch.object(core, "say_lang") as say:
+            self.assertTrue(jarvis_core.command_hook("edit this video"))
+            self.assertTrue(jarvis_core.command_hook("edit this photo"))
+        video.assert_called_once_with(action="auto_cut")
+        image.assert_called_once_with(action="enhance")
+        self.assertEqual(say.call_count, 2)
 
     def test_image_analysis_uses_visual_model_without_name_error(self):
         try:

@@ -1,6 +1,6 @@
-# Jarvis assistant features (v2.4.0)
+# Jarvis assistant features (v2.4.1)
 
-This guide covers the assistant layer through **v2.4.0**: global dictation,
+This guide covers the assistant layer through **v2.4.1**: global dictation,
 personality and writing voice, email/calendar, routines, real browser/Windows
 automation, connected work tools, MCP, reel features and privacy controls.
 Runtime data stays on your PC unless you explicitly invoke a cloud model/service.
@@ -273,6 +273,11 @@ creates real MP4 outputs with the bundled FFmpeg from `imageio-ffmpeg`:
 The source is never overwritten. An existing destination requires confirmation.
 Captions, transitions, speed ramps and audio replacement are not claimed.
 
+**No path needed:** *"edit this video"*, *"trim this clip"* or *"clean this
+footage"* picks the newest video in `Downloads`/`Desktop` and runs `auto_cut`.
+Give a path or a destination when you want exact control. This is a real FFmpeg
+edit, not a Premiere Pro timeline; Premiere is not required.
+
 ## 11. Local photo analysis and edits
 
 `image_operation` reads a local image with Gemini or creates a separate edited
@@ -281,6 +286,9 @@ file with Pillow. Actions: `info`, `analyze`, `open`, `resize`, `crop`,
 `preset="9:16"`, `"1:1"`, `"16:9"`, `"4:3"` or `"3:2"` performs a centre crop for
 social exports. Originals are never overwritten. Complex layers, masks,
 background removal and generative fill are not claimed.
+
+**No path needed:** *"edit this photo"* or *"enhance this image"* picks the
+newest image in `Downloads`/`Desktop` and saves an enhanced copy beside it.
 
 ## 12. Visual guide
 

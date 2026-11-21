@@ -102,6 +102,10 @@ account only has access to newer names.
   short clip for a more reliable answer.
 - If Gemini image/video analysis is unavailable, Jarvis says so and still
   reports real file metadata from FFprobe/Pillow.
+- *"Edit this video"* / *"edit this photo"* without a path uses the newest media
+  file in `Downloads` or `Desktop`. If nothing is found, Jarvis asks for a path
+  instead of guessing. Adobe Premiere Pro is not required; output is a real MP4
+  or image file, not a Premiere project.
 
 ## ISS, alerts and phone hand-off (v2.4)
 

@@ -27,6 +27,39 @@ def _source(path: str) -> str:
     return p if os.path.isfile(p) else ""
 
 
+_VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
+_MEDIA_FOLDERS = [
+    os.path.expanduser(os.path.join("~", "Downloads")),
+    os.path.expanduser(os.path.join("~", "Desktop")),
+    os.getcwd(),
+]
+
+
+def _recent_media(kind: str) -> str:
+    """Newest ordinary media file in Downloads/Desktop; never scans the whole disk."""
+    exts = _VIDEO_EXTENSIONS if kind == "video" else _IMAGE_EXTENSIONS
+    best = ""
+    best_time = 0.0
+    for folder in _MEDIA_FOLDERS:
+        try:
+            with os.scandir(folder) as entries:
+                for entry in entries:
+                    if not entry.is_file():
+                        continue
+                    if os.path.splitext(entry.name)[1].lower() not in exts:
+                        continue
+                    try:
+                        stamp = entry.stat().st_mtime
+                    except OSError:
+                        continue
+                    if stamp > best_time:
+                        best_time = stamp
+                        best = entry.path
+        except OSError:
+            continue
+    return best
+
+
 def _output(source: str, destination: str, suffix: str) -> str:
     if destination:
         p = core.resolve_path(destination)
@@ -203,6 +236,9 @@ def video_operation(action: str = "analyze", path: str = "", destination: str = 
     (installed through imageio-ffmpeg) and always creates a separate output.
     """
     source = _source(path)
+    if not source and not str(path or "").strip():
+        # "Edit this video" without a path: use the newest local video.
+        source = _source(_recent_media("video"))
     if not source:
         return f"Video file not found: {core.resolve_path(path)}"
     a = (action or "analyze").strip().lower()
@@ -372,6 +408,9 @@ def image_operation(action: str = "info", path: str = "", destination: str = "",
     An existing output file needs confirmation.
     """
     source = _image_source(path)
+    if not source and not str(path or "").strip():
+        # "Edit this photo" without a path: use the newest local image.
+        source = _image_source(_recent_media("image"))
     if not source:
         return f"Image file not found or unsupported: {core.resolve_path(path)}"
     a = (action or "info").strip().lower()

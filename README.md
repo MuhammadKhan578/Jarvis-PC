@@ -76,7 +76,7 @@ no API keys, no logs, and no private data**.
 - **MCP connections for coding agents (v2.3.0)** - `jarvis-memory` now adds
   read-only connected-workspace queries and quick cited research, alongside
   memory, calendar and writing-style context.
-- **Reel feature pack (v2.4.0)** - live ISS position and a refreshable HUD map;
+- **Reel feature pack (v2.4.1)** - live ISS position and a refreshable HUD map;
   real FFmpeg video trim/cut/auto-cut and local video understanding; local photo
   analysis and real photo edits (resize, crop, 9:16/1:1/16:9 presets, rotate,
   flip, enhance, grayscale, sepia, blur and text); a temporary visual guide that
