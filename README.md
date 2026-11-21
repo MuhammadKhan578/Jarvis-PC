@@ -89,6 +89,10 @@ no API keys, no logs, and no private data**.
   real add-to-cart attempt on a logged-in food site, official Instagram/YouTube
   insights with your token, and a real `steam://install/<appid>` download trigger.
   See `docs/PHONE_LINE.md` and `docs/ALL_YES_ADDON.md` for setup and limits.
+- **Device Link (v2.4.3)** - pair the mobile Jarvis over the local network with a
+  one-time code, receive any file (photo, zip, video, document) directly into PC
+  Jarvis, answer where to save it by voice, and take voice commands from the
+  phone without a SIM number. See `docs/PC_LINK.md`.
 - Optional `jarvis_skills/` folder for your own Python skills.
 
 > Dictation latency depends on the microphone, phrase length, speech-recognition

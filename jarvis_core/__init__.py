@@ -20,7 +20,7 @@ import threading
 import time
 import typing
 
-from . import (agent, brain, calendar_tools, core, diagnostics, dictation,
+from . import (agent, brain, calendar_tools, core, diagnostics, device_link, dictation,
                documents, games, hud, integrations, mail, mcp, media_tools,
                memory, persona, phone_line, privacy, research, resume, showcase,
                tools, voice, workspace)
@@ -121,6 +121,10 @@ NEW TOOLS
   on a logged-in food site. The final order/payment always stays with the user.
 - analytics_operation(action="insights", platform=...) — official Instagram Graph / YouTube
   Data API metrics with a locally protected token; never scrapes private pages or invents data.
+- device_link_operation(...) — local Wi-Fi link to the mobile Jarvis. A one-time code pairs
+  the phone; any file arrives into staging, Jarvis asks where to save it by voice, then
+  device_link_operation("save", file_id, destination) writes the real file. Also accepts
+  voice commands from the phone over `/link/command` — no phone number needed.
 
 HOW TO USE THEM
 1. Prefer ONE strong tool over many small steps. For example, for "make me a report on X and a Word
@@ -877,6 +881,55 @@ def command_hook(user_input: str, g: dict | None = None) -> bool:
         else:
             text = phone_line.phone_line_call(
                 to_number=number, message=message, confirmed=bool(m.group(1)))
+        core.say_lang(text, text, text)
+        return True
+
+    # local phone -> PC Device Link (same Wi-Fi, no internet/number) -------
+    if low in ("device link status", "device link haal", "link status", "device link") or (
+            "device link" in low and words & {"status", "haal"}):
+        text = device_link.device_link_operation("status")
+        core.say_lang(text, text, text)
+        return True
+    if low in ("device link start", "device link on", "device link chalao") or (
+            "device link" in low and words & {"start", "chalao", "on"}):
+        text = device_link.device_link_operation("start")
+        core.say_lang(text, text, text)
+        return True
+    if low in ("device link stop", "device link off", "device link band") or (
+            "device link" in low and words & {"stop", "band", "off"}):
+        text = device_link.device_link_operation("stop")
+        core.say_lang(text, text, text)
+        return True
+    if low in ("device link code", "pairing code", "link code", "device link pairing code") or (
+            "device link" in low and words & {"code", "pair", "pairing"}):
+        text = device_link.device_link_operation("code")
+        core.say_lang(text, text, text)
+        return True
+    if ("mobile se file aayi" in low or "phone se file aayi" in low or
+            "mobile se file" in low or "pending files" in low or
+            ("device link" in low and words & {"pending", "files"})):
+        text = device_link.device_link_operation("pending")
+        core.say_lang(text, text, text)
+        return True
+    save_match = re.match(r"^(?:please\s+)?(?:save\s+it\s+to|save\s+file\s+to|save\s+to)\s+(.+)$",
+                          user_input, re.I)
+    if not save_match:
+        save_match = re.match(r"^(.+?)\s+mein\s+save\s+karo$", user_input, re.I)
+    if save_match:
+        destination = save_match.group(1).strip(" ,:-")
+        pending = device_link.list_pending()
+        if not pending:
+            text = ("There is no pending file from the phone. Send a file from the paired "
+                    "phone first, then tell me where to save it.")
+        else:
+            text = device_link.device_link_operation(
+                "save", file_id=str(pending[0].get("id") or ""),
+                destination=destination, confirmed=False)
+        core.say_lang(text, text, text)
+        return True
+    if re.match(r"^(?:yes|haan|han|confirm(?:\s+save)?|ok(?:ay)?\s+save|save\s+confirm\s+karo|"
+                r"overwrite\s+confirm\s+karo)\s*[.!]?$", user_input.strip(), re.I):
+        text = device_link.device_link_operation("confirm")
         core.say_lang(text, text, text)
         return True
 

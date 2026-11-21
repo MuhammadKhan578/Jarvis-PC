@@ -1,9 +1,21 @@
-# Jarvis assistant features (v2.4.2)
+# Jarvis assistant features (v2.4.3)
 
-This guide covers the assistant layer through **v2.4.2**: global dictation,
+This guide covers the assistant layer through **v2.4.3**: global dictation,
 personality and writing voice, email/calendar, routines, real browser/Windows
-automation, connected work tools, MCP, reel features and privacy controls.
-Runtime data stays on your PC unless you explicitly invoke a cloud model/service.
+automation, connected work tools, MCP, reel features, the phone-to-PC Device
+Link and privacy controls. Runtime data stays on your PC unless you explicitly
+invoke a cloud model/service.
+
+### Device Link (phone → PC, v2.4.3)
+
+Say **"device link start"** and **"device link code"**, then enter the shown LAN
+IP, port `8766` and the one-time code in the Mobile Jarvis Connect panel. Say
+**"ye file PC par bhejo"** on the phone; the real file arrives into staging and
+PC Jarvis asks where to save it. Reply **"Downloads"** or
+**"D:\backup\photo.jpg mein save karo"**. If the target exists, say
+**"confirm save"**; no overwrite happens without that. **"PC Jarvis ko call
+karo"** on the phone starts a Wi-Fi voice intercom — no phone number is involved.
+See `docs/PC_LINK.md`.
 
 ---
 

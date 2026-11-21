@@ -1,4 +1,4 @@
-# Jarvis PC v2.4.2 feature matrix
+# Jarvis PC v2.4.3 feature matrix
 
 This maps the public assistant checklist to concrete code and verification.
 “Implemented” does not mean a third-party account is magically available: live
@@ -30,6 +30,7 @@ token and the service must be online.
 | 21 | Remote alerts | `showcase.py` | ntfy-compatible POST with DPAPI-protected token and confirmation gate; real provider result reported. |
 | 22 | Phone agent | `showcase.py` | ADB/provider dial hand-off with confirmation; call status/transcript only from a configured real provider. |
 | 23 | Steam/Epic library | `games.py` | Real Steam manifest and Epic launcher metadata, update scan and disk-space check; install/update opens the real client only after confirmation. |
+| 24 | Phone → PC Device Link | `device_link.py` | One-time code pairs the phone on the LAN; any file is staged with a 200 MB cap; Jarvis asks where to save it by voice; confirmed save verifies bytes and never overwrites silently. `/link/command` carries voice commands from the phone without a SIM number. |
 
 ## Runtime reality
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 import time
 
-from . import (calendar_tools, core, dictation, games, mcp, media_tools, news,
+from . import (calendar_tools, core, device_link, dictation, games, mcp, media_tools, news,
                persona, phone_line, privacy, showcase, smarthome, workspace)
 from .agent import mission_operation, schedule_operation, skill_operation
 from .brain import brain_operation
@@ -216,6 +216,13 @@ TOOL_FUNCTIONS = [
     phone_line.phone_line_operation,
     phone_line.phone_line_call,
     phone_line.phone_line_webhook,
+    device_link.device_link_operation,
+    device_link.device_link_start,
+    device_link.device_link_stop,
+    device_link.device_link_code,
+    device_link.device_link_pending,
+    device_link.device_link_save,
+    device_link.device_link_confirm,
     games.game_operation,
     hud_operation,
     config_operation,

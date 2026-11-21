@@ -59,12 +59,12 @@ class JarvisV230Tests(unittest.TestCase):
 
     def test_v240_versions_are_consistent(self):
         root = Path(__file__).resolve().parents[1]
-        self.assertIn('JARVIS_VERSION = "2.4.2"', (root / "jarvis.py").read_text(encoding="utf-8"))
-        self.assertIn('VERSION = "2.4.2"', (root / "jarvis_app.py").read_text(encoding="utf-8"))
-        self.assertEqual(mcp.SERVER_VERSION, "2.4.2")
+        self.assertIn('JARVIS_VERSION = "2.4.3"', (root / "jarvis.py").read_text(encoding="utf-8"))
+        self.assertIn('VERSION = "2.4.3"', (root / "jarvis_app.py").read_text(encoding="utf-8"))
+        self.assertEqual(mcp.SERVER_VERSION, "2.4.3")
         import jarvis_core
         self.assertEqual(jarvis_core.__version__, "3.3")
-        self.assertIn("v2.4.2", (root / "README.md").read_text(encoding="utf-8"))
+        self.assertIn("v2.4.3", (root / "README.md").read_text(encoding="utf-8"))
 
     def test_calendar_natural_dates_ranges_and_confirmed_invite(self):
         after = calendar_tools._parse_when("day after tomorrow 5 pm")
