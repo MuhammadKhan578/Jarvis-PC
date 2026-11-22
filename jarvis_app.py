@@ -30,7 +30,7 @@ LOG_FILE = os.path.join(APP_DIR, "jarvis_app.log")
 AI_STUDIO_URL = getattr(jcfg, "AI_STUDIO_URL", "https://aistudio.google.com/app/apikey")
 
 PREFERRED_MIC = ""
-VERSION = "2.4.5"
+VERSION = "2.4.6"
 
 # ---------- STARK HUD COLOR PALETTE ----------
 BG = "#030712"
@@ -411,6 +411,14 @@ class App:
                                cursor="hand2", highlightthickness=1,
                                highlightbackground="#133654")
         self.b_key.pack(side="right", padx=(0, 8), pady=2)
+
+        self.b_voice = tk.Button(top_bar, text="[ VOICE LOCK ]", command=self.open_voice_setup_dialog,
+                                 bg="#081422", fg=TEXT_DIM, activebackground="#0e243b",
+                                 activeforeground=CYAN_GLOW, relief="flat", bd=0,
+                                 padx=8, pady=2, font=("Consolas", 9, "bold"),
+                                 cursor="hand2", highlightthickness=1,
+                                 highlightbackground="#133654")
+        self.b_voice.pack(side="right", padx=(0, 8), pady=2)
 
         self.b_mem = tk.Button(top_bar, text="[ MEMORY ]", command=self.open_memory_core,
                                bg="#081422", fg=TEXT_DIM, activebackground="#0e243b",
@@ -1047,6 +1055,16 @@ class App:
 
         api_key_dialog(self.root, first_run=False, on_saved=on_saved)
 
+    def open_voice_setup_dialog(self):
+        def on_done(ok, message):
+            self.add_log("sys", message)
+            try:
+                self.b_voice.config(text="[ VOICE LOCK : ON ]" if ok else "[ VOICE LOCK ]",
+                                    fg=CYAN_GLOW if ok else TEXT_DIM)
+            except Exception:
+                pass
+        voice_setup_dialog(self.root, first_run=False, on_done=on_done)
+
     def quit(self):
         try:
             self.root.destroy()
@@ -1447,6 +1465,161 @@ def api_key_dialog(root, first_run=False, on_saved=None, initial_key=""):
     return bool(result["ok"] and jcfg.get_api_key())
 
 
+def voice_setup_dialog(root, first_run=False, on_done=None):
+    """Optional, skippable one-person voice check after API-key setup.
+
+    Nothing is uploaded. The stored vector is a convenience lock, not a
+    biometric guarantee; the dialog says exactly that in plain Roman Urdu.
+    """
+    try:
+        from jarvis_core.voice_id import voice_id
+    except Exception as exc:
+        if not first_run:
+            messagebox.showwarning("VOICE LOCK", "Voice check module load nahi hua: " + str(exc),
+                                   parent=root)
+        return False
+
+    if first_run and voice_id.setup_done():
+        return True
+
+    win = tk.Toplevel(root)
+    win.title("OPTIONAL // SIRF AAPKI AWAZ")
+    win.configure(bg=BG)
+    win.resizable(False, False)
+    try:
+        win.transient(root)
+        win.grab_set()
+    except Exception:
+        pass
+
+    wrap = tk.Frame(win, bg=BG, padx=22, pady=18)
+    wrap.pack(fill="both", expand=True)
+    tk.Label(wrap, text="SIRF AAPKI AWAZ? (OPTIONAL)", bg=BG, fg=CYAN_GLOW,
+             font=("Consolas", 14, "bold")).pack(anchor="w")
+    tk.Label(wrap,
+             text="Agar aap chahein to Jarvis sirf aapki awaaz se spoken commands maanega.\n"
+                  "Ye step skip kar sakte hain. Awaaz ka chhota model sirf is PC par save hoga —\n"
+                  "koi audio cloud par nahi jayegi. Ye biometric guarantee nahi hai.",
+             bg=BG, fg=TEXT_MAIN, justify="left", font=("Segoe UI", 10),
+             wraplength=520).pack(anchor="w", pady=(5, 12))
+
+    status = tk.StringVar()
+    status.set("Enrolled: " + ("haan" if voice_id.has_enrollment() else "nahi") +
+               " | Lock: " + ("on" if voice_id.enabled else "off"))
+    tk.Label(wrap, textvariable=status, bg=PANEL, fg=TEXT_DIM, anchor="w",
+             justify="left", wraplength=520, padx=12, pady=10,
+             highlightthickness=1, highlightbackground=PANEL_BORDER).pack(fill="x")
+
+    actions = tk.Frame(wrap, bg=BG)
+    actions.pack(fill="x", pady=(12, 4))
+    rec_btn = tk.Button(actions, text="AWAZ RECORD KAREIN (2 baar)",
+                        bg="#0284c7", fg="#030712", activebackground=CYAN_GLOW,
+                        relief="flat", bd=0, padx=12, pady=7,
+                        font=("Consolas", 10, "bold"), cursor="hand2")
+    rec_btn.pack(side="left")
+    lock_btn = tk.Button(actions, text="LOCK ON/OFF",
+                         bg="#0c2b48", fg=CYAN_GLOW, activebackground="#133654",
+                         relief="flat", bd=0, padx=12, pady=7,
+                         font=("Consolas", 9, "bold"), cursor="hand2")
+    lock_btn.pack(side="left", padx=8)
+    clear_btn = tk.Button(actions, text="DATA HATAEIN",
+                          bg="#3b0f1a", fg="#fecdd3", activebackground="#881337",
+                          relief="flat", bd=0, padx=10, pady=7,
+                          font=("Consolas", 9, "bold"), cursor="hand2")
+    clear_btn.pack(side="left")
+
+    def refresh():
+        status.set("Enrolled: " + ("haan" if voice_id.has_enrollment() else "nahi") +
+                   " | Lock: " + ("on" if voice_id.enabled else "off"))
+        lock_btn.config(text="LOCK OFF" if voice_id.enabled else "LOCK ON")
+
+    def finish(ok, message):
+        status.set(message)
+        refresh()
+        if on_done:
+            try:
+                on_done(ok, message)
+            except Exception:
+                pass
+
+    def do_skip():
+        if first_run:
+            voice_id.mark_skipped()
+        finish(False, "Skip kiya gaya. Voice lock off rehega.")
+        win.after(450, win.destroy)
+
+    def do_record():
+        rec_btn.config(state="disabled")
+        status.set("Mic taiyar ho raha hai...")
+        messages = queue.Queue()
+
+        def worker():
+            try:
+                import jarvis as J
+                ok, msg = J.voice_enroll_from_mic(
+                    on_status=lambda text: messages.put(("status", text)))
+            except Exception as exc:
+                ok, msg = False, "Recording nahi hui: " + str(exc)
+            messages.put(("result", ok, msg))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+        def poll():
+            done = False
+            while True:
+                try:
+                    item = messages.get_nowait()
+                except queue.Empty:
+                    break
+                if item[0] == "status":
+                    status.set(item[1])
+                else:
+                    done = True
+                    rec_btn.config(state="normal")
+                    finish(bool(item[1]), item[2])
+            if not done:
+                win.after(120, poll)
+        poll()
+
+    def do_lock():
+        if not voice_id.has_enrollment():
+            messagebox.showinfo("VOICE LOCK", "Pehle awaaz record karein.", parent=win)
+            return
+        now = not voice_id.enabled
+        voice_id.set_enabled(now)
+        finish(now, "Voice lock " + ("on" if now else "off") + ".")
+
+    def do_clear():
+        if not messagebox.askyesno("VOICE DATA", "Sirf is PC ka awaaz data hataein?", parent=win):
+            return
+        voice_id.clear()
+        finish(False, "Awaaz data hata diya gaya.")
+
+    rec_btn.config(command=do_record)
+    lock_btn.config(command=do_lock)
+    clear_btn.config(command=do_clear)
+    tk.Button(wrap, text="SKIP / AAGE BADHEIN", command=do_skip,
+              bg="#081422", fg=TEXT_DIM, activebackground="#0e243b",
+              activeforeground=TEXT_MAIN, relief="flat", bd=0, padx=12, pady=7,
+              font=("Consolas", 9, "bold"), cursor="hand2").pack(anchor="w", pady=(10, 0))
+    refresh()
+
+    win.update_idletasks()
+    try:
+        w, h = win.winfo_reqwidth(), win.winfo_reqheight()
+        x = root.winfo_rootx() + max(0, (root.winfo_width() - w) // 2)
+        y = root.winfo_rooty() + max(0, (root.winfo_height() - h) // 2)
+        win.geometry(f"{w}x{h}+{x}+{y}")
+    except Exception:
+        pass
+    try:
+        win.wait_visibility()
+        win.wait_window()
+    except Exception:
+        pass
+    return voice_id.enabled
+
+
 def ensure_api_key(root) -> bool:
     if jcfg is None:
         return False
@@ -1475,6 +1648,8 @@ def main():
     if not ensure_api_key(root):
         messagebox.showerror("AUTHENTICATION REJECTED", "GEMINI API key ke baghair Jarvis chalna mumkin nahi.")
         os._exit(1)
+    # Asked immediately after the key, but always skippable.
+    voice_setup_dialog(root, first_run=True)
     threading.Thread(target=app.boot, daemon=True).start()
     root.mainloop()
 

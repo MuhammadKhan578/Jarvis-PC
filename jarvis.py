@@ -47,6 +47,10 @@ import psutil
 import pyautogui
 import keyboard
 import speech_recognition as sr
+try:
+    from jarvis_core.voice_id import voice_id
+except Exception:
+    voice_id = None  # optional feature: fail closed, never block Jarvis
 import edge_tts
 import pygame
 from google import genai
@@ -94,7 +98,7 @@ VOICE_LOCK = True
 
 LANG_MODE = "both"  # "both" = match the language you speak | "en" = English only | "ur" = Roman Urdu only
 STT_LANG = "en-IN"  # language used to understand your speech (en-IN also understands Roman Urdu words well)
-JARVIS_VERSION = "2.4.5"  # shown in the start-up banner and the HUD title
+JARVIS_VERSION = "2.4.6"  # shown in the start-up banner and the HUD title
 
 # ⚡ MICROPHONE
 #   MIC_MODE "auto"    = Jarvis scans your microphones and uses one that really hears sound (virtual ones are skipped)
@@ -111,6 +115,46 @@ mic_released = threading.Event()    # set whenever the listener has no microphon
 mic_released.set()
 _bad_mics = set()                   # microphones that sent no sound at all (skipped in auto mode)
 last_input_lang = ["en"]  # language of the last command ("en" or "ur"), used when LANG_MODE is "both"
+
+
+def voice_enroll_from_mic(samples: int = 2, on_status=None):
+    """Record two short local samples and store a speaker vector. No upload.
+
+    Returns (ok, message). The caller (HUD dialog or typed command) decides when
+    to run it. The normal listener is parked while the microphone is borrowed.
+    """
+    if voice_id is None:
+        return False, "Voice check module available nahi hai."
+    mic_hold.set()
+    mic_reload_event.set()  # make the running listener release its microphone
+    try:
+        if not mic_released.wait(4.0):
+            return False, "Mic abhi busy hai. Thodi der baad dobara try karein."
+        try:
+            mic = sr.Microphone()
+            recognizer = sr.Recognizer()
+            saved = 0
+            with mic as source:
+                recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                for i in range(max(1, int(samples))):
+                    if on_status:
+                        try:
+                            on_status(f"{i + 1}/{samples}: bolein 'Hello Jarvis, ye meri awaaz hai'")
+                        except Exception:
+                            pass
+                    clip = recognizer.listen(source, timeout=8, phrase_time_limit=5)
+                    if voice_id.enroll(clip.frame_data, clip.sample_rate):
+                        saved += 1
+            if saved == 0:
+                return False, "Awaaz clear nahi mili. Dobara try karein."
+            voice_id.set_enabled(True)
+            return True, "Aapki awaaz is PC par save ho gayi. Voice lock on hai."
+        except sr.WaitTimeoutError:
+            return False, "Mic ne awaaz nahi suni. Paas se bolein aur dobara try karein."
+        except Exception as exc:
+            return False, "Mic se recording nahi hui: " + str(exc)
+    finally:
+        mic_hold.clear()
 
 # ⚡ SPEECH CATCHING (Jarvis learns the room noise by itself; these only set the limits)
 MIC_MIN_TRIGGER = 28       # a sound must be at least this loud (0-32767) to count as speech
@@ -3109,7 +3153,9 @@ _ST_PHRASES = {
               "as salam o alaikum", "aslam o alaikum", "assalam o alaikum jarvis"},
     "howru": {"how are you", "how are you doing", "kaise ho", "kese ho", "kaisay ho", "kaise hain",
               "aap kaise ho", "tum kaise ho", "kya haal hai", "kya hal hai", "kya haal", "kia haal hai",
-              "how r u", "aap kaise hain", "kaise hain aap", "kaise ho aap"},
+              "how r u", "aap kaise hain", "kaise hain aap", "kaise ho aap",
+              "hello kaise ho", "hi kaise ho", "hello how are you", "hello kese ho",
+              "hello kaisay ho", "hi how are you", "hallo kaise ho", "salam kaise ho"},
     "thanks": {"thank you", "thanks", "thank u", "shukriya", "shukria", "thanks a lot", "bohat shukriya",
                "bahut shukriya", "meherbani", "thank you very much"},
     "there": {"are you there", "you there", "sun rahe ho", "sunn rahe ho", "kahan ho", "hello are you there",
@@ -3123,8 +3169,8 @@ _ST_REPLIES = {
     "greet":   ("Hello sir, at your service.", "Ji sir, hukam kijiye.", "جی سر، حکم کیجیے۔", False),
     "salam":   ("Peace be upon you, sir. How can I help?", "Walaikum assalam sir, ji farmaiye.",
                 "وعلیکم السلام سر، جی فرمائیے۔", True),
-    "howru":   ("I am doing great, sir. How can I help you?", "Main bilkul theek hoon sir. Aap bataiye?",
-                "میں بالکل ٹھیک ہوں سر۔ آپ بتائیے؟", False),
+    "howru":   ("What's up sir? I am doing great, how can I help?", "Kya hua sir? Main bilkul theek hoon, aap bataiye.",
+                "کیا ہوا سر؟ میں بالکل ٹھیک ہوں، آپ بتائیے۔", False),
     "thanks":  ("You are welcome, sir.", "Koi baat nahi sir.", "کوئی بات نہیں سر۔", False),
     "there":   ("Yes sir, I am here.", "Ji sir, main yahin hoon.", "جی سر، میں یہیں ہوں۔", False),
     "morning": ("Good morning, sir.", "Subah bakhair sir.", "صبح بخیر سر۔", False),
@@ -5771,6 +5817,18 @@ def mic_listener():
                     except Exception as e:
                         print(f"[Mic Error]: {e}")
                         continue
+                    # Optional single-speaker lock. Verification uses the raw
+                    # microphone clip (before boost) and never sends audio away.
+                    if voice_id is not None and voice_id.enabled:
+                        try:
+                            voice_ok = voice_id.verify(audio.frame_data, audio.sample_rate)
+                        except Exception:
+                            voice_ok = False
+                        if not voice_ok:
+                            _mic_note("voice", "Awaaz match nahi hui. Voice lock on hai —"
+                                               " sirf enrolled awaaz se command chalegi.", every=8.0)
+                            continue
+
                     print(f"[Heard]: {text}")
 
                     hit = _find_wake(text)
@@ -5893,6 +5951,42 @@ def handle_command(user_input: str):
         n = random.randint(10, 99)
         speak(f"Voice test number {n}. Systems operational and voice synthesis configured properly, sir.",
               urdu=f"آواز ٹیسٹ نمبر {n}۔ تمام سسٹمز آن لائن ہیں اور آواز بالکل درست کام کر رہی ہے، سر۔")
+        return
+
+    # Optional single-speaker check. Settings are local; no audio is uploaded.
+    vcmd = low.strip()
+    if vcmd in ("voice status", "voice lock status", "awaaz status"):
+        ok = bool(voice_id and voice_id.enabled)
+        enrolled = bool(voice_id and voice_id.has_enrollment())
+        speak("Voice lock on aur enrolled." if ok else
+              ("Enrolled hai par lock off." if enrolled else "Voice lock off. Koi awaaz enroll nahi hui."))
+        return
+    if vcmd in ("voice lock on", "awaaz lock on"):
+        if voice_id is None:
+            speak("Voice check module available nahi hai, sir.")
+        elif voice_id.set_enabled(True):
+            speak("Voice lock on. Ab sirf enrolled awaaz se spoken commands chalenge.")
+        else:
+            speak("Pehle awaaz enroll karein. HUD par VOICE LOCK dabaiye ya 'voice enroll' likhiye.")
+        return
+    if vcmd in ("voice lock off", "awaaz lock off"):
+        if voice_id is not None:
+            voice_id.set_enabled(False)
+        speak("Voice lock off. Ab koi bhi awaaz commands de sakti hai.")
+        return
+    if vcmd in ("voice enroll", "awaaz enroll", "enroll voice"):
+        speak("Do chhoti recordings lenge. Bolein: Hello Jarvis, ye meri awaaz hai.",
+              urdu="دو چھوٹی ریکارڈنگز لیں گے۔ بولیں: ہیلو جارویس، یہ میری آواز ہے۔")
+        ok, msg = voice_enroll_from_mic()
+        speak(msg)
+        return
+    if vcmd in ("voice clear", "awaaz clear"):
+        speak("Pehle 'confirm voice clear' bolein ya likhein. Ye sirf is PC se awaaz data hatayega.")
+        return
+    if vcmd in ("confirm voice clear", "confirm awaaz clear"):
+        if voice_id is not None:
+            voice_id.clear()
+        speak("Awaaz data is PC se hata diya gaya.")
         return
 
     if any(t in low for t in ["who is your creator", "who created you", "who made you",

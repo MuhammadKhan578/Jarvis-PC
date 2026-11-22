@@ -104,6 +104,12 @@ no API keys, no logs, and no private data**.
   starts the webhook. `phone_line_webhook.ps1 -TunnelUrl https://...` points your
   Twilio number at Jarvis automatically. Trial accounts can call Jarvis from any
   phone; Jarvis calls back only your verified mobile. See `docs/PHONE_LINE.md`.
+- **Optional voice lock + natural greeting (v2.4.6)** - right after the API key,
+  Jarvis asks (skippably) if only your voice should control spoken commands. The
+  small speaker model is stored in `jarvis_data/voiceprint.json` on this PC only;
+  nothing is uploaded and it is not a biometric guarantee. "Hello Jarvis, kaise
+  ho" now gets the instant local answer "Kya hua sir?". See
+  `docs/RELEASE_NOTES_v2.4.6.md`.
 - Optional `jarvis_skills/` folder for your own Python skills.
 
 > Dictation latency depends on the microphone, phrase length, speech-recognition

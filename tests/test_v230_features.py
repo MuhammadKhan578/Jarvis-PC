@@ -59,9 +59,9 @@ class JarvisV230Tests(unittest.TestCase):
 
     def test_v240_versions_are_consistent(self):
         root = Path(__file__).resolve().parents[1]
-        self.assertIn('JARVIS_VERSION = "2.4.5"', (root / "jarvis.py").read_text(encoding="utf-8"))
-        self.assertIn('VERSION = "2.4.5"', (root / "jarvis_app.py").read_text(encoding="utf-8"))
-        self.assertEqual(mcp.SERVER_VERSION, "2.4.5")
+        self.assertIn('JARVIS_VERSION = "2.4.6"', (root / "jarvis.py").read_text(encoding="utf-8"))
+        self.assertIn('VERSION = "2.4.6"', (root / "jarvis_app.py").read_text(encoding="utf-8"))
+        self.assertEqual(mcp.SERVER_VERSION, "2.4.6")
         import jarvis_core
         self.assertEqual(jarvis_core.__version__, "3.3")
         self.assertIn("v2.4.5", (root / "README.md").read_text(encoding="utf-8"))
